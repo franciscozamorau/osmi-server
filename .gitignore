@@ -1,0 +1,26 @@
+# Go
+*.exe
+*.out
+*.test
+*.log
+*.tmp
+*.swp
+*.bak
+*.DS_Store
+
+# Protobuf generated files
+gen/*.pb.go
+gen/*.pb_grpc.go
+
+# Config
+.env
+config/*.env
+
+# Docker
+*.tar
+*.img
+
+# IDE/editor
+.vscode/
+.idea/
+*.code-workspace
