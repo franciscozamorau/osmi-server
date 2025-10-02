@@ -1,0 +1,18 @@
+syntax = "proto3";
+option go_package = "osmi-server/gen";
+
+package osmi;
+
+service OsmiService {
+  rpc CreateTicket (TicketRequest) returns (TicketResponse);
+}
+
+message TicketRequest {
+  string event_id = 1;
+  string user_id = 2;
+}
+
+message TicketResponse {
+  string ticket_id = 1;
+  string status = 2;
+}
