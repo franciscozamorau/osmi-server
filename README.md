@@ -4,7 +4,7 @@ Backend gRPC para la plataforma Osmi. Este módulo implementa el núcleo del sis
 
 ---
 
-## 🧱 Osmi Core Stack
+## Osmi Core Stack
 
 - **Go** → lenguaje principal
 - **gRPC** → protocolo de comunicación
@@ -13,9 +13,7 @@ Backend gRPC para la plataforma Osmi. Este módulo implementa el núcleo del sis
 - **PostgreSQL** → base de datos relacional (próxima etapa)
 - **Kubernetes** → orquestación y despliegue (próxima etapa)
 
----
-
-## 📁 Estructura del proyecto
+## Estructura del proyecto
 
 osmi-server/
 ├── cmd/
@@ -45,41 +43,24 @@ osmi-server/
 ├── go.mod
 ├── go.sum
 
-
-
----
-
 ## 🚀 Cómo correr el servidor localmente
 
 ```bash
 go mod tidy
 go run cmd/main.go
+```
 
-
----
 ## 🚀 Cómo correr con Docker
 
-```bash
-
+```
 docker build -t osmi-server -f docker/Dockerfile .
 docker run -p 50051:50051 osmi-server
+```
 
-
-## 📡 Endpoint gRPC disponible
-
+## Endpoint gRPC disponible
+```
 rpc CreateTicket (TicketRequest) returns (TicketResponse);
+```
 
-
-📌 Próximas etapas
-[ ] Cliente gRPC (osmi-client)
-
-[ ] Gateway REST (osmi-gateway)
-
-[ ] Conexión a PostgreSQL (osmi-db)
-
-[ ] Seguridad con JWT (internal/auth)
-
-[ ] Despliegue en Kubernetes (k8s/)
-
-🧠 Autor
-Francisco D. Zamora — Fullstack Developer & Systems Engineer
+## Autor
+### Francisco David Zamora Urrutia — Fullstack Developer & Systems Engineer
