@@ -1,18 +1,42 @@
 syntax = "proto3";
+
 option go_package = "osmi-server/gen";
 
 package osmi;
 
 service OsmiService {
-  rpc CreateTicket (TicketRequest) returns (TicketResponse);
+  rpc CreateTicket(TicketRequest) returns (TicketResponse);
+  rpc CreateCustomer(CustomerRequest) returns (CustomerResponse);
+  rpc GetCustomer(CustomerLookup) returns (CustomerResponse);
 }
 
 message TicketRequest {
   string event_id = 1;
   string user_id = 2;
+  string category_id = 3;
 }
 
 message TicketResponse {
   string ticket_id = 1;
   string status = 2;
+  string code = 3;
+  string qr_code_url = 4;
+}
+
+message CustomerRequest {
+  string name = 1;
+  string email = 2;
+  string phone = 3;
+}
+
+message CustomerLookup {
+  int32 id = 1;
+}
+
+message CustomerResponse {
+  int32 id = 1;
+  string name = 2;
+  string email = 3;
+  string phone = 4;
+  string public_id = 5;
 }
