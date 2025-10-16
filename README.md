@@ -15,6 +15,7 @@ Backend gRPC para la plataforma Osmi. Este módulo implementa el núcleo del sis
 
 ## Estructura del proyecto
 
+```bash
 osmi-server/
 ├── cmd/
 │   └── main.go
@@ -42,6 +43,10 @@ osmi-server/
 │   └── secret.yaml
 ├── go.mod
 ├── go.sum
+└── LICENSE.md
+└── README.md
+
+```
 
 ## 🚀 Cómo correr el servidor localmente
 
