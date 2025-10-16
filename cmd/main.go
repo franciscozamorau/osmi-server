@@ -105,19 +105,6 @@ func (s *server) GetCustomer(ctx context.Context, req *pb.CustomerLookup) (*pb.C
 	}, nil
 }
 
-// seedTestCustomer crea un cliente de prueba para desarrollo
-func seedTestCustomer() {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	id, err := repository.CreateCustomer(ctx, "Francisco", "fran@osmi.com")
-	if err != nil {
-		log.Printf("⚠️ Test customer creation failed: %v", err)
-	} else {
-		log.Printf("✅ Test customer created with ID: %d", id)
-	}
-}
-
 // startHealthServer inicia el servidor HTTP para health checks
 func startHealthServer(port string) {
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -172,22 +159,6 @@ func main() {
 		log.Fatalf("❌ DB init failed: %v", err)
 	}
 	defer db.Close()
-
-	// Crear tablas si no existen
-	if err := db.CreateTables(); err != nil {
-		log.Fatalf("Create tables failed: %v", err)
-	}
-
-	// Opcional: para desarrollo, puedes agregar datos de prueba
-	if os.Getenv("ENVIRONMENT") == "development" {
-		log.Println("Development environment detected, seeding data...")
-		if err := db.SeedData(); err != nil {
-			log.Printf("Warning seeding data: %v", err)
-		}
-
-		// Crear cliente de prueba
-		seedTestCustomer()
-	}
 
 	// Iniciar servidor de health checks en goroutine separada
 	healthPort := os.Getenv("HEALTH_PORT")
