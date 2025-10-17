@@ -4,10 +4,35 @@ option go_package = "osmi-server/gen";
 
 package osmi;
 
+import "google/api/annotations.proto";
+
 service OsmiService {
-  rpc CreateTicket(TicketRequest) returns (TicketResponse);
-  rpc CreateCustomer(CustomerRequest) returns (CustomerResponse);
-  rpc GetCustomer(CustomerLookup) returns (CustomerResponse);
+  rpc CreateTicket(TicketRequest) returns (TicketResponse) {
+    option (google.api.http) = {
+      post: "/tickets"
+      body: "*"
+    };
+  }
+
+  rpc CreateCustomer(CustomerRequest) returns (CustomerResponse) {
+    option (google.api.http) = {
+      post: "/customers"
+      body: "*"
+    };
+  }
+
+  rpc GetCustomer(CustomerLookup) returns (CustomerResponse) {
+    option (google.api.http) = {
+      get: "/customers/{id}"
+    };
+  }
+
+  rpc CreateUser(UserRequest) returns (UserResponse) {
+    option (google.api.http) = {
+      post: "/users"
+      body: "*"
+    };
+  }
 }
 
 message TicketRequest {
@@ -39,4 +64,15 @@ message CustomerResponse {
   string email = 3;
   string phone = 4;
   string public_id = 5;
+}
+
+message UserRequest {
+  string user_id = 1;
+  string name = 2;
+  string email = 3;
+}
+
+message UserResponse {
+  string user_id = 1;
+  string status = 2;
 }

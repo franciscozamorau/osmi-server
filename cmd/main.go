@@ -14,6 +14,7 @@ import (
 	pb "osmi-server/gen"
 	"osmi-server/internal/db"
 	"osmi-server/internal/repository"
+	"osmi-server/internal/service"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
@@ -189,7 +190,7 @@ func main() {
 	)
 
 	// Registrar servicio principal
-	pb.RegisterOsmiServiceServer(grpcServer, NewServer())
+	pb.RegisterOsmiServiceServer(grpcServer, &service.Server{})
 
 	// Registrar servicio de health check gRPC
 	healthServer := health.NewServer()
