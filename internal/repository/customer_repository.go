@@ -5,11 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"osmi-server/internal/db"
-	"osmi-server/internal/models"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/franciscozamorau/osmi-server/internal/db"
+	"github.com/franciscozamorau/osmi-server/internal/models"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"

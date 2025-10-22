@@ -11,10 +11,10 @@ import (
 	"syscall"
 	"time"
 
-	pb "osmi-server/gen"
-	"osmi-server/internal/db"
-	"osmi-server/internal/repository"
-	"osmi-server/internal/service"
+	pb "github.com/franciscozamorau/osmi-server/gen"
+	"github.com/franciscozamorau/osmi-server/internal/db"
+	"github.com/franciscozamorau/osmi-server/internal/repository"
+	"github.com/franciscozamorau/osmi-server/internal/service"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
@@ -190,7 +190,11 @@ func main() {
 	)
 
 	// Registrar servicio principal
-	pb.RegisterOsmiServiceServer(grpcServer, &service.Server{})
+	pb.RegisterOsmiServiceServer(grpcServer, &service.Server{
+		customerRepo: repository.NewCustomerRepository(),
+		ticketRepo:   repository.NewTicketRepository(),
+		eventRepo:    repository.NewEventRepository(),
+	})
 
 	// Registrar servicio de health check gRPC
 	healthServer := health.NewServer()

@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
-	pb "osmi-server/gen"
-	"osmi-server/internal/db"
-	"osmi-server/internal/models"
 	"strings"
 	"time"
+
+	pb "github.com/franciscozamorau/osmi-server/gen"
+	"github.com/franciscozamorau/osmi-server/internal/db"
+	"github.com/franciscozamorau/osmi-server/internal/models"
 
 	"github.com/jackc/pgx/v5"
 )

@@ -8,7 +8,7 @@ Go → lenguaje principal
 gRPC → protocolo de comunicación entre servicios
 Protobuf → definición de contratos y mensajes
 grpc-gateway → puente REST ↔ gRPC (activo)
-PostgreSQL → base de datos relacional (en proceso)
+PostgreSQL → base de datos relacional (conectado)
 Kubernetes → orquestación y despliegue (en proceso)
 Docker → contenedorización del servicio
 .env + godotenv → gestión de variables de entorno
