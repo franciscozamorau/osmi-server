@@ -4,7 +4,7 @@
 // - protoc             v6.32.1
 // source: proto/osmi.proto
 
-package gen
+package osmi_server
 
 import (
 	context "context"

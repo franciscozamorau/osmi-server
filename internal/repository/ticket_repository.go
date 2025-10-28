@@ -66,27 +66,131 @@ func (r *TicketRepository) CreateTicket(ctx context.Context, req *pb.TicketReque
 	}
 
 	query := `
-		INSERT INTO tickets (event_id, category_id, code, status, price) 
-		VALUES ($1, $2, $3, 'available', 
-			COALESCE((SELECT price FROM categories WHERE id = $2), 0)
+		INSERT INTO tickets (
+			public_id, event_id, category_id, code, status, price, created_at, updated_at
+		) 
+		VALUES ($1, $2, $3, $4, 'available', 
+			COALESCE((SELECT price FROM categories WHERE id = $3), 0),
+			CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 		) 
 		RETURNING public_id
 	`
 
-	// Generar un código único para el ticket
+	// Generar public_id y código único para el ticket
+	publicID := fmt.Sprintf("tkt-%d", time.Now().UnixNano())
 	code := generateTicketCode(req.EventId, req.UserId)
 
-	var publicID string
-	err := db.Pool.QueryRow(ctx, query, req.EventId, req.CategoryId, code).Scan(&publicID)
+	var resultPublicID string
+	err := db.Pool.QueryRow(ctx, query, publicID, req.EventId, req.CategoryId, code).Scan(&resultPublicID)
 	if err != nil {
 		return "", fmt.Errorf("error creating ticket: %v", err)
 	}
 
 	// Auditoría explícita
-	r.auditTicketChange(ctx, "INSERT", nil, publicID)
+	r.auditTicketChange(ctx, "INSERT", nil, resultPublicID)
 
-	log.Printf("✅ Ticket created: %s for event %s", publicID, req.EventId)
-	return publicID, nil
+	log.Printf("Ticket created: %s for event %s", resultPublicID, req.EventId)
+	return resultPublicID, nil
+}
+
+// GetTicketsByUserID obtiene todos los tickets de un usuario por user_id
+func (r *TicketRepository) GetTicketsByUserID(ctx context.Context, userID string) ([]*models.Ticket, error) {
+	query := `
+		SELECT t.id, t.public_id, t.category_id, t.event_id, t.customer_id, 
+		       t.code, t.status, t.seat_number, t.qr_code_url, t.price, 
+		       t.used_at, t.transferred_from_ticket_id, t.created_at, t.updated_at
+		FROM tickets t
+		INNER JOIN customers c ON t.customer_id = c.id
+		WHERE c.public_id = $1
+		ORDER BY t.created_at DESC
+	`
+
+	rows, err := db.Pool.Query(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("error querying tickets by user: %w", err)
+	}
+	defer rows.Close()
+
+	var tickets []*models.Ticket
+	for rows.Next() {
+		var ticket models.Ticket
+		err := rows.Scan(
+			&ticket.ID,
+			&ticket.PublicID,
+			&ticket.CategoryID,
+			&ticket.EventID,
+			&ticket.CustomerID,
+			&ticket.Code,
+			&ticket.Status,
+			&ticket.SeatNumber,
+			&ticket.QRCodeURL,
+			&ticket.Price,
+			&ticket.UsedAt,
+			&ticket.TransferredFromTicketID,
+			&ticket.CreatedAt,
+			&ticket.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error scanning ticket: %w", err)
+		}
+		tickets = append(tickets, &ticket)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating tickets: %w", err)
+	}
+
+	log.Printf("✅ Found %d tickets for user: %s", len(tickets), userID)
+	return tickets, nil
+}
+
+// GetTicketsByCustomerID obtiene todos los tickets de un cliente por customer_id
+func (r *TicketRepository) GetTicketsByCustomerID(ctx context.Context, customerID int64) ([]*models.Ticket, error) {
+	query := `
+		SELECT id, public_id, category_id, event_id, customer_id, code, status,
+		       seat_number, qr_code_url, price, used_at, transferred_from_ticket_id,
+		       created_at, updated_at
+		FROM tickets 
+		WHERE customer_id = $1
+		ORDER BY created_at DESC
+	`
+
+	rows, err := db.Pool.Query(ctx, query, customerID)
+	if err != nil {
+		return nil, fmt.Errorf("error querying tickets by customer: %w", err)
+	}
+	defer rows.Close()
+
+	var tickets []*models.Ticket
+	for rows.Next() {
+		var ticket models.Ticket
+		err := rows.Scan(
+			&ticket.ID,
+			&ticket.PublicID,
+			&ticket.CategoryID,
+			&ticket.EventID,
+			&ticket.CustomerID,
+			&ticket.Code,
+			&ticket.Status,
+			&ticket.SeatNumber,
+			&ticket.QRCodeURL,
+			&ticket.Price,
+			&ticket.UsedAt,
+			&ticket.TransferredFromTicketID,
+			&ticket.CreatedAt,
+			&ticket.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error scanning ticket: %w", err)
+		}
+		tickets = append(tickets, &ticket)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating tickets: %w", err)
+	}
+
+	return tickets, nil
 }
 
 // validateEventAndCategory valida que el evento y categoría existan
@@ -94,7 +198,7 @@ func (r *TicketRepository) validateEventAndCategory(ctx context.Context, eventID
 	// Validar que el evento existe y está activo
 	var eventExists bool
 	err := db.Pool.QueryRow(ctx,
-		"SELECT EXISTS(SELECT 1 FROM events WHERE id = $1 AND is_active = true)",
+		"SELECT EXISTS(SELECT 1 FROM events WHERE public_id = $1 AND is_active = true)",
 		eventID).Scan(&eventExists)
 
 	if err != nil {
@@ -107,7 +211,7 @@ func (r *TicketRepository) validateEventAndCategory(ctx context.Context, eventID
 	// Validar que la categoría existe y está activa
 	var categoryExists bool
 	err = db.Pool.QueryRow(ctx,
-		"SELECT EXISTS(SELECT 1 FROM categories WHERE id = $1 AND is_active = true)",
+		"SELECT EXISTS(SELECT 1 FROM categories WHERE public_id = $1 AND is_active = true)",
 		categoryID).Scan(&categoryExists)
 
 	if err != nil {
@@ -120,8 +224,11 @@ func (r *TicketRepository) validateEventAndCategory(ctx context.Context, eventID
 	// Validar que la categoría pertenece al evento
 	var validCategory bool
 	err = db.Pool.QueryRow(ctx,
-		"SELECT EXISTS(SELECT 1 FROM categories WHERE id = $1 AND event_id = $2)",
-		categoryID, eventID).Scan(&validCategory)
+		`SELECT EXISTS(
+			SELECT 1 FROM categories c 
+			INNER JOIN events e ON c.event_id = e.id 
+			WHERE c.public_id = $1 AND e.public_id = $2
+		)`, categoryID, eventID).Scan(&validCategory)
 
 	if err != nil {
 		return fmt.Errorf("error validating category-event relationship: %v", err)
@@ -279,7 +386,7 @@ func (r *TicketRepository) UpdateTicketStatus(ctx context.Context, ticketID int6
 	// Auditoría explícita
 	r.auditTicketChange(ctx, "UPDATE", oldTicket, oldTicket.PublicID)
 
-	log.Printf("✅ Ticket status updated: ID %d (%s -> %s)", ticketID, oldTicket.Status, status)
+	log.Printf("Ticket status updated: ID %d (%s -> %s)", ticketID, oldTicket.Status, status)
 	return nil
 }
 
@@ -342,8 +449,8 @@ func (r *TicketRepository) ListTickets(ctx context.Context, filters *TicketFilte
 	return tickets, pagination, nil
 }
 
-// AssignTicketToTransaction asigna un ticket a una transacción
-func (r *TicketRepository) AssignTicketToTransaction(ctx context.Context, ticketID, transactionID int64) error {
+// AssignTicketToCustomer asigna un ticket a un cliente
+func (r *TicketRepository) AssignTicketToCustomer(ctx context.Context, ticketID, customerID int64) error {
 	// Obtener ticket antiguo para auditoría
 	oldTicket, err := r.GetTicketByID(ctx, ticketID)
 	if err != nil {
@@ -352,23 +459,23 @@ func (r *TicketRepository) AssignTicketToTransaction(ctx context.Context, ticket
 
 	query := `
 		UPDATE tickets 
-		SET transaction_id = $1, status = 'sold', updated_at = CURRENT_TIMESTAMP 
+		SET customer_id = $1, status = 'sold', updated_at = CURRENT_TIMESTAMP 
 		WHERE id = $2 AND status IN ('available', 'reserved')
 	`
 
-	result, err := db.Pool.Exec(ctx, query, transactionID, ticketID)
+	result, err := db.Pool.Exec(ctx, query, customerID, ticketID)
 	if err != nil {
-		return fmt.Errorf("error assigning ticket to transaction: %v", err)
+		return fmt.Errorf("error assigning ticket to customer: %v", err)
 	}
 
 	if result.RowsAffected() == 0 {
-		return fmt.Errorf("ticket not available for transaction assignment: %d", ticketID)
+		return fmt.Errorf("ticket not available for customer assignment: %d", ticketID)
 	}
 
 	// Auditoría explícita
 	r.auditTicketChange(ctx, "UPDATE", oldTicket, oldTicket.PublicID)
 
-	log.Printf("✅ Ticket assigned to transaction: Ticket %d -> Transaction %d", ticketID, transactionID)
+	log.Printf("Ticket assigned to customer: Ticket %d -> Customer %d", ticketID, customerID)
 	return nil
 }
 
@@ -389,7 +496,7 @@ func (r *TicketRepository) ReserveTicket(ctx context.Context, ticketID int64, cu
 		return fmt.Errorf("ticket not available for reservation: %d", ticketID)
 	}
 
-	log.Printf("✅ Ticket reserved: ID %d for customer %d", ticketID, customerID)
+	log.Printf("Ticket reserved: ID %d for customer %d", ticketID, customerID)
 	return nil
 }
 
@@ -499,8 +606,10 @@ func (r *TicketRepository) isValidStatusTransition(from, to string) bool {
 }
 
 func generateTicketCode(eventID, userID string) string {
-	timestamp := time.Now().Unix()
-	return fmt.Sprintf("TKT-%s-%s-%d", eventID, userID, timestamp)
+	timestamp := time.Now().UnixNano()
+	// Tomar solo los últimos 8 caracteres del timestamp para hacerlo más corto
+	shortTimestamp := fmt.Sprintf("%d", timestamp)[:8]
+	return fmt.Sprintf("TKT-%s-%s-%s", eventID, userID, shortTimestamp)
 }
 
 // auditTicketChange realiza auditoría explícita de cambios en tickets
@@ -519,5 +628,5 @@ func (r *TicketRepository) auditTicketChange(ctx context.Context, operation stri
 	}
 
 	// En un entorno de producción, aquí enviarías a un servicio de auditoría
-	log.Printf("📝 Ticket audit - %s: %+v", operation, auditData)
+	log.Printf("Ticket audit - %s: %+v", operation, auditData)
 }

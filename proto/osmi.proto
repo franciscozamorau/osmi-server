@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-option go_package = "osmi-server/gen";
-
 package osmi;
+
+option go_package = "github.com/franciscozamorau/osmi-proto/gen;osmi";
 
 import "google/api/annotations.proto";
 
@@ -11,6 +11,12 @@ service OsmiService {
     option (google.api.http) = {
       post: "/tickets"
       body: "*"
+    };
+  }
+
+  rpc ListTickets(UserLookup) returns (TicketListResponse) {
+    option (google.api.http) = {
+      get: "/users/{user_id}/tickets"
     };
   }
 
@@ -33,8 +39,28 @@ service OsmiService {
       body: "*"
     };
   }
+
+  rpc CreateEvent(EventRequest) returns (EventResponse) {
+    option (google.api.http) = {
+      post: "/events"
+      body: "*"
+    };
+  }
+
+  rpc GetEvent(EventLookup) returns (EventResponse) {
+    option (google.api.http) = {
+      get: "/events/{public_id}"
+    };
+  }
+
+  rpc ListEvents(Empty) returns (EventListResponse) {
+    option (google.api.http) = {
+      get: "/events"
+    };
+  }
 }
 
+// Mensajes (usa los de osmi-server que son más completos)
 message TicketRequest {
   string event_id = 1;
   string user_id = 2;
@@ -46,6 +72,10 @@ message TicketResponse {
   string status = 2;
   string code = 3;
   string qr_code_url = 4;
+}
+
+message TicketListResponse {
+  repeated TicketResponse tickets = 1;
 }
 
 message CustomerRequest {
@@ -76,3 +106,53 @@ message UserResponse {
   string user_id = 1;
   string status = 2;
 }
+
+message UserLookup {
+  string user_id = 1;
+}
+
+message EventRequest {
+  string name = 1;
+  string description = 2;
+  string short_description = 3;
+  string start_date = 4;
+  string end_date = 5;
+  string location = 6;
+  string venue_details = 7;
+  string category = 8;
+  string tags = 9;
+  bool is_active = 10;
+  bool is_published = 11;
+  string image_url = 12;
+  string banner_url = 13;
+  int32 max_attendees = 14;
+}
+
+message EventResponse {
+  int32 id = 1;
+  string public_id = 2;
+  string name = 3;
+  string description = 4;
+  string short_description = 5;
+  string start_date = 6;
+  string end_date = 7;
+  string location = 8;
+  string venue_details = 9;
+  string category = 10;
+  string tags = 11;
+  bool is_active = 12;
+  bool is_published = 13;
+  string image_url = 14;
+  string banner_url = 15;
+  int32 max_attendees = 16;
+}
+
+message EventLookup {
+  string public_id = 1;
+}
+
+message EventListResponse {
+  repeated EventResponse events = 1;
+}
+
+message Empty {}

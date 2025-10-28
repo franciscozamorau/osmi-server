@@ -190,10 +190,11 @@ func main() {
 	)
 
 	// Registrar servicio principal
+	// Registrar servicio principal
 	pb.RegisterOsmiServiceServer(grpcServer, &service.Server{
-		customerRepo: repository.NewCustomerRepository(),
-		ticketRepo:   repository.NewTicketRepository(),
-		eventRepo:    repository.NewEventRepository(),
+		CustomerRepo: repository.NewCustomerRepository(),
+		TicketRepo:   repository.NewTicketRepository(),
+		EventRepo:    repository.NewEventRepository(),
 	})
 
 	// Registrar servicio de health check gRPC

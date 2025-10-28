@@ -4,7 +4,7 @@
 // 	protoc        v6.32.1
 // source: proto/osmi.proto
 
-package gen
+package osmi_server
 
 import (
 	_ "google.golang.org/genproto/googleapis/api/annotations"
@@ -482,7 +482,7 @@ const file_proto_osmi_proto_rawDesc = "" +
 	"/customers\x12T\n" +
 	"\vGetCustomer\x12\x14.osmi.CustomerLookup\x1a\x16.osmi.CustomerResponse\"\x17\x82\xd3\xe4\x93\x02\x11\x12\x0f/customers/{id}\x12F\n" +
 	"\n" +
-	"CreateUser\x12\x11.osmi.UserRequest\x1a\x12.osmi.UserResponse\"\x11\x82\xd3\xe4\x93\x02\v:\x01*\"\x06/usersB\x11Z\x0fosmi-server/genb\x06proto3"
+	"CreateUser\x12\x11.osmi.UserRequest\x1a\x12.osmi.UserResponse\"\x11\x82\xd3\xe4\x93\x02\v:\x01*\"\x06/usersB)Z'github.com/franciscozamorau/osmi-serverb\x06proto3"
 
 var (
 	file_proto_osmi_proto_rawDescOnce sync.Once
