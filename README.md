@@ -1,5 +1,5 @@
 # Osmi Server
-Backend gRPC para la plataforma Osmi. Este módulo implementa el núcleo del sistema de boletaje digital, utilizando una arquitectura escalable, segura y profesional. Incluye integración REST vía grpc-gateway, validación de salud, y simulación de endpoints para pruebas.
+Backend gRPC para la plataforma Osmi. Este módulo implementa el núcleo del sistema de boletaje digital utilizando una arquitectura escalable, segura y profesional. Incluye servicios gRPC completos, integración con PostgreSQL, y health checks.
 ---
 
 # Osmi Core Stack
@@ -19,60 +19,72 @@ Health & Readiness Probes → verificación de estado del sistema
 ```bash
 osmi-server/
 ├── cmd/
-│   └── main.go                        # Entrypoint principal del servidor gRPC con health checks y graceful shutdown
-├── config/                            # Carga de variables de entorno y configuración
+│   └── main.go                 # Entrypoint principal del servidor gRPC
+├── proto/
+│   └── osmi.proto             # Definición de servicios gRPC con anotaciones REST
+├── gen/                       # Código generado por protoc (NO EDITAR)
+│   ├── osmi.pb.go             # Estructuras de datos
+│   ├── osmi_grpc.pb.go        # Servidor gRPC
+│   └── osmi.pb.gw.go          # Gateway HTTP (para osmi-gateway)
 ├── internal/
-│   ├── auth/                          # Validación de tokens y roles (pendiente)
-│   ├── contex/
-│   │   └── contex.go                  # Propagación de contexto entre capas
 │   ├── db/
-│   │   └── db.go                      # Inicialización y conexión a PostgreSQL con pgxpool
-│   ├── middleware/                    # Interceptores gRPC (pendiente)
+│   │   └── db.go              # Conexión PostgreSQL con pgxpool
 │   ├── service/
-│   │   └── service.go                 # Implementación real de métodos gRPC: clientes, tickets, eventos
-│   ├── utils/                         # Validaciones y helpers internos
+│   │   └── service.go         # Implementación de métodos gRPC
 │   ├── repository/
 │   │   ├── customer_repository.go     # CRUD de clientes
 │   │   ├── ticket_repository.go       # CRUD de tickets
-│   │   ├── event_repository.go        # CRUD de eventos
-│   └── models/
-│       └── models.go                  # Estructuras de datos: Customer, Ticket, Event
-├── proto/
-│   └── osmi.proto                     # Definición de servicios gRPC con anotaciones REST
-├── gen/
-│   ├── osmi.pb.go                     # Código generado por protoc
-│   ├── osmi_grpc.pb.go                # Interfaces gRPC
-│   └── osmi.pb.gw.go                  # Gateway REST ↔ gRPC (generado por grpc-gateway)
-├── docker/
-│   └── Dockerfile                     # Imagen para despliegue gRPC
-├── k8s/
-│   ├── deployment.yaml                # Despliegue en Kubernetes
-│   ├── service.yaml                   # Exposición del servicio
-│   ├── ingress.yaml                   # Entrada HTTP
-│   ├── configmap.yaml                 # Configuración externa
-│   └── secret.yaml                    # Variables sensibles
+│   │   └── event_repository.go        # CRUD de eventos
+│   ├── models/
+│   │   └── models.go          # Estructuras: Customer, Ticket, Event
+│   ├── context/
+│   │   └── context.go         # Propagación de contexto y auditoría
+│   ├── auth/                  # Validación de tokens y roles (en desarrollo)
+│   ├── middleware/            # Interceptores gRPC (en desarrollo)
+│   └── utils/                 # Validaciones y helpers
 ├── third_party/
-│   └── google/api/
-│       ├── annotations.proto          # Anotaciones REST para grpc-gateway
-│       └── http.proto
-├── .dockerignore                      # Exclusión de binarios y archivos temporales
+│   └── googleapis/            # Dependencias de protobuf
+├── docker/
+│   └── Dockerfile             # Imagen para despliegue
+├── k8s/                       # Configuración Kubernetes
+├── config/                    # Configuración de aplicación
+├── .env                       # Variables de entorno
+├── .dockerignore              # Exclusión de archivos en Docker
+├── generate_proto_fixed.bat   # Script generación código proto
 ├── go.mod
 ├── go.sum
 ├── .gitignore
-├── LICENSE.md
+├── CHANGELOG.md
+├── LICENSE
 └── README.md
 
 ```
 
 # Ejecución local
 ```
+Requisitos:
+Go 1.21+
+PostgreSQL ejecutándose
+Variables de entorno configuradas en .env
+
+# Instalar dependencias
 go mod tidy
+
+# Generar código protobuf (Windows)
+generate_proto_fixed.bat
+
+# Ejecutar servidor
 go run cmd/main.go
+
+El servidor estará disponible en: localhost:50051
 ```
 
 ## Ejecución con Docker
 ```
+# Construir imagen
 docker build -t osmi-server -f docker/Dockerfile .
+
+# Ejecutar contenedor
 docker run -p 50051:50051 osmi-server
 ```
 
@@ -80,13 +92,14 @@ docker run -p 50051:50051 osmi-server
 ```bash
 protobuf
 service OsmiService {
-  rpc CreateUser (UserRequest) returns (UserResponse);
-  rpc CreateTicket (TicketRequest) returns (TicketResponse);
-  rpc CreateCustomer (CustomerRequest) returns (CustomerResponse);
-  rpc GetCustomer (CustomerLookup) returns (CustomerResponse);
-  rpc CreateEvent (EventRequest) returns (EventResponse);
-  rpc GetEvent (EventLookup) returns (EventResponse);
-  rpc ListEvents (Empty) returns (EventListResponse);
+  rpc CreateTicket(TicketRequest) returns (TicketResponse);
+  rpc ListTickets(UserLookup) returns (TicketListResponse);
+  rpc CreateCustomer(CustomerRequest) returns (CustomerResponse);
+  rpc GetCustomer(CustomerLookup) returns (CustomerResponse);
+  rpc CreateUser(UserRequest) returns (UserResponse);
+  rpc CreateEvent(EventRequest) returns (EventResponse);
+  rpc GetEvent(EventLookup) returns (EventResponse);
+  rpc ListEvents(Empty) returns (EventListResponse);
 }
 ```
 
@@ -103,14 +116,43 @@ GET	/customers/{id}	Obtener cliente por ID
 ```
 GET /health → Verifica conexión a base de datos
 GET /ready → Verifica estado de conexión y estadísticas
+Disponibles en: http://localhost:8081
 ```
 
-# Estado actual
-Todos los métodos gRPC están implementados y funcionales
-El gateway traduce correctamente las rutas HTTP ↔ gRPC
-La base de datos está conectada y operativa
-El servidor responde con datos reales y simulados
-Health checks activos en /health y /ready
+## Generación de Código Proto
+### Después de modificar proto/osmi.proto, ejecutar:
+
+```bash
+generate_proto_fixed.bat
+Este script genera código para:
+
+osmi-server: Servidor gRPC en gen/
+
+osmi-gateway: Gateway HTTP en ../osmi-gateway/gen/
+```
+
+## Estado actual
+### Completado
+Servidor gRPC completamente funcional en puerto 50051
+Todos los métodos del servicio implementados
+Conexión a PostgreSQL operativa
+Health checks activos en puerto 8081
+Repositorios para Customers, Tickets y Events
+Script de generación de código protobuf
+
+## En Desarrollo
+Kubernetes deployment
+Autenticación y autorización
+Interceptores gRPC
+Métricas y monitoring
+
+## Configuración
+### Variables de entorno requeridas en .env:
+```bash
+DATABASE_URL=postgresql://user:pass@host:port/db
+GRPC_PORT=50051
+HEALTH_PORT=8081
+```
 
 # Autor
 ### Francisco David Zamora Urrutia Fullstack Developer · Systems Architect · Lyricist

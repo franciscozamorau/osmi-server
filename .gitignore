@@ -24,3 +24,12 @@ config/*.env
 .vscode/
 .idea/
 *.code-workspace
+
+# Archivos generados
+gen/
+
+# Dependencias de protobuf (si las quieres ignorar)
+third_party/googleapis/
+
+# Carpeta github.com/ si se vuelve a generar
+github.com/
