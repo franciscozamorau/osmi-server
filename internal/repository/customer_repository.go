@@ -66,12 +66,12 @@ func (r *CustomerRepository) CreateCustomer(ctx context.Context, name, email, ph
 	}
 	r.auditCustomerChange(ctx, "INSERT", nil, id, auditCtx)
 
-	log.Printf("✅ Customer created: %s (ID: %d)", email, id)
+	log.Printf("Customer created: %s (ID: %d)", email, id)
 	return id, nil
 }
 
 // GetCustomerByID obtiene un cliente por su ID
-func (r *CustomerRepository) GetCustomerByID(ctx context.Context, id int) (*models.Customer, error) {
+func (r *CustomerRepository) GetCustomerByID(ctx context.Context, id int64) (*models.Customer, error) {
 	query := `
 		SELECT id, public_id, name, email, phone, date_of_birth, address, 
 		       preferences, loyalty_points, is_verified, verification_token,
@@ -152,7 +152,7 @@ func (r *CustomerRepository) UpdateCustomer(ctx context.Context, id int, name, e
 	}
 
 	// Obtener datos antiguos para auditoría
-	oldCustomer, err := r.GetCustomerByID(ctx, id)
+	oldCustomer, err := r.GetCustomerByID(ctx, int64(id))
 	if err != nil {
 		return err
 	}
@@ -183,14 +183,14 @@ func (r *CustomerRepository) UpdateCustomer(ctx context.Context, id int, name, e
 	}
 	r.auditCustomerChange(ctx, "UPDATE", oldCustomer, int64(id), auditCtx)
 
-	log.Printf("✅ Customer updated: %s (ID: %d)", email, id)
+	log.Printf("Customer updated: %s (ID: %d)", email, id)
 	return nil
 }
 
 // DeleteCustomer elimina un cliente
 func (r *CustomerRepository) DeleteCustomer(ctx context.Context, id int) error {
 	// Obtener datos para auditoría antes de eliminar
-	oldCustomer, err := r.GetCustomerByID(ctx, id)
+	oldCustomer, err := r.GetCustomerByID(ctx, int64(id))
 	if err != nil {
 		return err
 	}
@@ -214,7 +214,7 @@ func (r *CustomerRepository) DeleteCustomer(ctx context.Context, id int) error {
 	}
 	r.auditCustomerChange(ctx, "DELETE", oldCustomer, int64(id), auditCtx)
 
-	log.Printf("✅ Customer deleted: ID %d", id)
+	log.Printf("Customer deleted: ID %d", id)
 	return nil
 }
 
@@ -383,10 +383,7 @@ func (r *CustomerRepository) auditCustomerChange(ctx context.Context, operation 
 		}
 	}
 
-	// En producción, enviar a servicio de auditoría externo
-	// Ej: r.auditService.Send(auditPayload)
-
-	log.Printf("📝 Customer audit - %s: %+v", operation, auditPayload)
+	log.Printf("Customer audit - %s: %+v", operation, auditPayload)
 }
 
 // isDuplicateKeyError verifica si el error es por violación de unique constraint
@@ -420,5 +417,5 @@ func CreateCustomer(ctx context.Context, name, email string) (int, error) {
 
 func GetCustomerByID(ctx context.Context, id int) (*models.Customer, error) {
 	repo := NewCustomerRepository()
-	return repo.GetCustomerByID(ctx, id)
+	return repo.GetCustomerByID(ctx, int64(id))
 }

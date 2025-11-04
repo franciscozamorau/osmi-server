@@ -27,7 +27,7 @@ type Ticket struct {
 	PublicID                string           `json:"public_id"`
 	CategoryID              int64            `json:"category_id"`
 	EventID                 int64            `json:"event_id"`
-	CustomerID              pgtype.Int4      `json:"customer_id"`
+	UserID                  pgtype.Text      `json:"user_id"` // ✅ CORREGIDO: Cambiado de CustomerID int64 a UserID string (UUID)
 	Code                    string           `json:"code"`
 	Status                  string           `json:"status"`
 	SeatNumber              pgtype.Text      `json:"seat_number"`

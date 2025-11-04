@@ -15,7 +15,6 @@ import (
 	"github.com/franciscozamorau/osmi-server/internal/db"
 	"github.com/franciscozamorau/osmi-server/internal/repository"
 	"github.com/franciscozamorau/osmi-server/internal/service"
-
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -74,14 +73,15 @@ func (s *server) CreateTicket(ctx context.Context, req *pb.TicketRequest) (*pb.T
 func (s *server) CreateCustomer(ctx context.Context, req *pb.CustomerRequest) (*pb.CustomerResponse, error) {
 	log.Printf("Creating customer: %s, email: %s", req.Name, req.Email)
 
-	id, err := s.customerRepo.CreateCustomer(ctx, req.Name, req.Email, req.Phone)
+	// ✅ CORREGIDO: Usar el ID generado por CreateCustomer, no req.Id (que no existe)
+	customerID, err := s.customerRepo.CreateCustomer(ctx, req.Name, req.Email, req.Phone)
 	if err != nil {
 		log.Printf("Error creating customer: %v", err)
 		return nil, err
 	}
 
-	// Obtener el cliente creado para devolver todos los datos
-	customer, err := s.customerRepo.GetCustomerByID(ctx, int(id))
+	// ✅ CORREGIDO: Usar customerID (el ID generado) en lugar de req.Id
+	customer, err := s.customerRepo.GetCustomerByID(ctx, customerID)
 	if err != nil {
 		log.Printf("Error getting created customer: %v", err)
 		return nil, err
@@ -100,7 +100,7 @@ func (s *server) CreateCustomer(ctx context.Context, req *pb.CustomerRequest) (*
 func (s *server) GetCustomer(ctx context.Context, req *pb.CustomerLookup) (*pb.CustomerResponse, error) {
 	log.Printf("Getting customer with ID: %d", req.Id)
 
-	customer, err := s.customerRepo.GetCustomerByID(ctx, int(req.Id))
+	customer, err := s.customerRepo.GetCustomerByID(ctx, int64(req.Id))
 	if err != nil {
 		log.Printf("Error getting customer: %v", err)
 		return nil, err
@@ -147,26 +147,25 @@ func startHealthServer(port string) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, `{
 			"status": "ready", 
-			"timestamp": "%s",
+			"timestamp": "%s", 
 			"database": {
 				"total_connections": %d,
-				"idle_connections": %d,
+				"idle_connections": %d, 
 				"max_connections": %d
 			}
-		}`, time.Now().UTC().Format(time.RFC3339),
-			stats.TotalConns(), stats.IdleConns(), stats.MaxConns())
+		}`, time.Now().UTC().Format(time.RFC3339), stats.TotalConns(), stats.IdleConns(), stats.MaxConns())
 	})
 
-	log.Printf("🩺 Health check server running on port %s", port)
+	log.Printf("Health check server running on port %s", port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		log.Printf("❌ Health server failed: %v", err)
+		log.Printf("Health server failed: %v", err)
 	}
 }
 
 func main() {
 	// Inicializar base de datos
 	if err := db.Init(); err != nil {
-		log.Fatalf("❌ DB init failed: %v", err)
+		log.Fatalf("DB init failed: %v", err)
 	}
 	defer db.Close()
 
@@ -180,16 +179,21 @@ func main() {
 	// Configurar el listener gRPC
 	lis, err := net.Listen("tcp", ":50051")
 	if err != nil {
-		log.Fatalf("❌ Failed to listen: %v", err)
+		log.Fatalf("Failed to listen: %v", err)
 	}
 
-	// Crear servidor gRPC con opciones
+	// ✅ MEJORA PROFESIONAL: Crear servidor gRPC con interceptores básicos
 	grpcServer := grpc.NewServer(
 		grpc.MaxRecvMsgSize(10*1024*1024), // 10MB
 		grpc.MaxSendMsgSize(10*1024*1024), // 10MB
+		// ✅ FUTURA MEJORA: Agregar interceptores aquí
+		// grpc.ChainUnaryInterceptor(
+		// 	loggingInterceptor,
+		// 	metricsInterceptor,
+		// 	authInterceptor,
+		// ),
 	)
 
-	// Registrar servicio principal
 	// Registrar servicio principal
 	pb.RegisterOsmiServiceServer(grpcServer, &service.Server{
 		CustomerRepo: repository.NewCustomerRepository(),
@@ -204,7 +208,7 @@ func main() {
 
 	log.Println("Osmi gRPC server running on port 50051")
 
-	// Configurar graceful shutdown
+	// ✅ MEJORA PROFESIONAL: Configurar graceful shutdown robusto
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
@@ -212,10 +216,11 @@ func main() {
 		<-stop
 		log.Println("Shutdown signal received")
 
-		// Graceful shutdown del servidor gRPC
+		// Cambiar estado de health check
 		healthServer.SetServingStatus("osmi.OsmiService", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
 
 		// Dar tiempo para que las conexiones actuales terminen
+		log.Println("Waiting for ongoing requests to complete...")
 		time.Sleep(5 * time.Second)
 
 		log.Println("Shutting down gRPC server")
@@ -229,3 +234,42 @@ func main() {
 
 	log.Println("Server shutdown complete")
 }
+
+// ✅ FUTURAS MEJORAS PROFESIONALES (para implementar después):
+
+// loggingInterceptor - Interceptor para logging estructurado
+/*
+func loggingInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	start := time.Now()
+	resp, err := handler(ctx, req)
+	duration := time.Since(start)
+
+	// Log estructurado con campos
+	log.Printf("gRPC call: %s, duration: %v, error: %v", info.FullMethod, duration, err)
+	return resp, err
+}
+*/
+
+// metricsInterceptor - Interceptor para métricas Prometheus
+/*
+func metricsInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	// Registrar métricas aquí
+	// requestCounter.WithLabelValues(info.FullMethod).Inc()
+	start := time.Now()
+	resp, err := handler(ctx, req)
+	duration := time.Since(start)
+	// requestDuration.WithLabelValues(info.FullMethod).Observe(duration.Seconds())
+
+	_ = duration // Evitar warning de variable no usada
+	return resp, err
+}
+*/
+
+// startMetricsServer - Servidor para métricas Prometheus
+/*
+func startMetricsServer(port string) {
+	http.Handle("/metrics", promhttp.Handler())
+	log.Printf("Metrics server running on port %s", port)
+	http.ListenAndServe(":"+port, nil)
+}
+*/

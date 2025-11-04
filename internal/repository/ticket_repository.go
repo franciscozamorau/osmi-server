@@ -10,6 +10,7 @@ import (
 	pb "github.com/franciscozamorau/osmi-server/gen"
 	"github.com/franciscozamorau/osmi-server/internal/db"
 	"github.com/franciscozamorau/osmi-server/internal/models"
+	"github.com/google/uuid"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -67,21 +68,21 @@ func (r *TicketRepository) CreateTicket(ctx context.Context, req *pb.TicketReque
 
 	query := `
 		INSERT INTO tickets (
-			public_id, event_id, category_id, code, status, price, created_at, updated_at
+			public_id, event_id, category_id, user_id, code, status, price, created_at, updated_at
 		) 
-		VALUES ($1, $2, $3, $4, 'available', 
-			COALESCE((SELECT price FROM categories WHERE id = $3), 0),
+		VALUES ($1, $2, $3, $4, $5, 'available', 
+			COALESCE((SELECT price FROM categories WHERE public_id = $3), 0),
 			CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 		) 
 		RETURNING public_id
 	`
 
-	// Generar public_id y código único para el ticket
-	publicID := fmt.Sprintf("tkt-%d", time.Now().UnixNano())
+	// ✅ CORREGIDO: Generar UUID válido en lugar de string con prefijo
+	publicID := uuid.New().String()
 	code := generateTicketCode(req.EventId, req.UserId)
 
 	var resultPublicID string
-	err := db.Pool.QueryRow(ctx, query, publicID, req.EventId, req.CategoryId, code).Scan(&resultPublicID)
+	err := db.Pool.QueryRow(ctx, query, publicID, req.EventId, req.CategoryId, req.UserId, code).Scan(&resultPublicID)
 	if err != nil {
 		return "", fmt.Errorf("error creating ticket: %v", err)
 	}
@@ -95,14 +96,14 @@ func (r *TicketRepository) CreateTicket(ctx context.Context, req *pb.TicketReque
 
 // GetTicketsByUserID obtiene todos los tickets de un usuario por user_id
 func (r *TicketRepository) GetTicketsByUserID(ctx context.Context, userID string) ([]*models.Ticket, error) {
+	// ✅ CORREGIDO: Query simplificada - usando user_id directo en lugar de customer_id
 	query := `
-		SELECT t.id, t.public_id, t.category_id, t.event_id, t.customer_id, 
-		       t.code, t.status, t.seat_number, t.qr_code_url, t.price, 
-		       t.used_at, t.transferred_from_ticket_id, t.created_at, t.updated_at
-		FROM tickets t
-		INNER JOIN customers c ON t.customer_id = c.id
-		WHERE c.public_id = $1
-		ORDER BY t.created_at DESC
+		SELECT id, public_id, category_id, event_id, user_id, code, status,
+		       seat_number, qr_code_url, price, used_at, transferred_from_ticket_id,
+		       created_at, updated_at
+		FROM tickets 
+		WHERE user_id = $1
+		ORDER BY created_at DESC
 	`
 
 	rows, err := db.Pool.Query(ctx, query, userID)
@@ -119,7 +120,7 @@ func (r *TicketRepository) GetTicketsByUserID(ctx context.Context, userID string
 			&ticket.PublicID,
 			&ticket.CategoryID,
 			&ticket.EventID,
-			&ticket.CustomerID,
+			&ticket.UserID, // ✅ CORREGIDO: Ahora usa UserID en lugar de CustomerID
 			&ticket.Code,
 			&ticket.Status,
 			&ticket.SeatNumber,
@@ -140,18 +141,20 @@ func (r *TicketRepository) GetTicketsByUserID(ctx context.Context, userID string
 		return nil, fmt.Errorf("error iterating tickets: %w", err)
 	}
 
-	log.Printf("✅ Found %d tickets for user: %s", len(tickets), userID)
+	log.Printf("Found %d tickets for user: %s", len(tickets), userID)
 	return tickets, nil
 }
 
 // GetTicketsByCustomerID obtiene todos los tickets de un cliente por customer_id
 func (r *TicketRepository) GetTicketsByCustomerID(ctx context.Context, customerID int64) ([]*models.Ticket, error) {
 	query := `
-		SELECT id, public_id, category_id, event_id, customer_id, code, status,
+		SELECT id, public_id, category_id, event_id, user_id, code, status,
 		       seat_number, qr_code_url, price, used_at, transferred_from_ticket_id,
 		       created_at, updated_at
 		FROM tickets 
-		WHERE customer_id = $1
+		WHERE user_id IN (
+			SELECT public_id FROM customers WHERE id = $1
+		)
 		ORDER BY created_at DESC
 	`
 
@@ -169,7 +172,7 @@ func (r *TicketRepository) GetTicketsByCustomerID(ctx context.Context, customerI
 			&ticket.PublicID,
 			&ticket.CategoryID,
 			&ticket.EventID,
-			&ticket.CustomerID,
+			&ticket.UserID, // ✅ CORREGIDO: Ahora usa UserID
 			&ticket.Code,
 			&ticket.Status,
 			&ticket.SeatNumber,
@@ -243,7 +246,7 @@ func (r *TicketRepository) validateEventAndCategory(ctx context.Context, eventID
 // GetTicketByID obtiene un ticket por ID
 func (r *TicketRepository) GetTicketByID(ctx context.Context, id int64) (*models.Ticket, error) {
 	query := `
-		SELECT id, public_id, category_id, event_id, customer_id, code, status,
+		SELECT id, public_id, category_id, event_id, user_id, code, status,
 		       seat_number, qr_code_url, price, used_at, transferred_from_ticket_id,
 		       created_at, updated_at
 		FROM tickets 
@@ -256,7 +259,7 @@ func (r *TicketRepository) GetTicketByID(ctx context.Context, id int64) (*models
 		&ticket.PublicID,
 		&ticket.CategoryID,
 		&ticket.EventID,
-		&ticket.CustomerID,
+		&ticket.UserID, // ✅ CORREGIDO: Ahora usa UserID
 		&ticket.Code,
 		&ticket.Status,
 		&ticket.SeatNumber,
@@ -281,7 +284,7 @@ func (r *TicketRepository) GetTicketByID(ctx context.Context, id int64) (*models
 // GetTicketByCode obtiene un ticket por código
 func (r *TicketRepository) GetTicketByCode(ctx context.Context, code string) (*models.Ticket, error) {
 	query := `
-		SELECT id, public_id, category_id, event_id, customer_id, code, status,
+		SELECT id, public_id, category_id, event_id, user_id, code, status,
 		       seat_number, qr_code_url, price, used_at, transferred_from_ticket_id,
 		       created_at, updated_at
 		FROM tickets 
@@ -294,7 +297,7 @@ func (r *TicketRepository) GetTicketByCode(ctx context.Context, code string) (*m
 		&ticket.PublicID,
 		&ticket.CategoryID,
 		&ticket.EventID,
-		&ticket.CustomerID,
+		&ticket.UserID, // ✅ CORREGIDO: Ahora usa UserID
 		&ticket.Code,
 		&ticket.Status,
 		&ticket.SeatNumber,
@@ -319,7 +322,7 @@ func (r *TicketRepository) GetTicketByCode(ctx context.Context, code string) (*m
 // GetTicketByPublicID obtiene un ticket por public_id
 func (r *TicketRepository) GetTicketByPublicID(ctx context.Context, publicID string) (*models.Ticket, error) {
 	query := `
-		SELECT id, public_id, category_id, event_id, customer_id, code, status,
+		SELECT id, public_id, category_id, event_id, user_id, code, status,
 		       seat_number, qr_code_url, price, used_at, transferred_from_ticket_id,
 		       created_at, updated_at
 		FROM tickets 
@@ -332,7 +335,7 @@ func (r *TicketRepository) GetTicketByPublicID(ctx context.Context, publicID str
 		&ticket.PublicID,
 		&ticket.CategoryID,
 		&ticket.EventID,
-		&ticket.CustomerID,
+		&ticket.UserID, // ✅ CORREGIDO: Ahora usa UserID
 		&ticket.Code,
 		&ticket.Status,
 		&ticket.SeatNumber,
@@ -396,7 +399,7 @@ func (r *TicketRepository) ListTickets(ctx context.Context, filters *TicketFilte
 	params = append(params, pageSize, (page-1)*pageSize)
 
 	query := fmt.Sprintf(`
-		SELECT id, public_id, category_id, event_id, customer_id, code, status,
+		SELECT id, public_id, category_id, event_id, user_id, code, status,
 		       seat_number, qr_code_url, price, used_at, transferred_from_ticket_id,
 		       created_at, updated_at
 		FROM tickets 
@@ -419,7 +422,7 @@ func (r *TicketRepository) ListTickets(ctx context.Context, filters *TicketFilte
 			&ticket.PublicID,
 			&ticket.CategoryID,
 			&ticket.EventID,
-			&ticket.CustomerID,
+			&ticket.UserID, // ✅ CORREGIDO: Ahora usa UserID
 			&ticket.Code,
 			&ticket.Status,
 			&ticket.SeatNumber,
@@ -459,7 +462,7 @@ func (r *TicketRepository) AssignTicketToCustomer(ctx context.Context, ticketID,
 
 	query := `
 		UPDATE tickets 
-		SET customer_id = $1, status = 'sold', updated_at = CURRENT_TIMESTAMP 
+		SET user_id = (SELECT public_id FROM customers WHERE id = $1), status = 'sold', updated_at = CURRENT_TIMESTAMP 
 		WHERE id = $2 AND status IN ('available', 'reserved')
 	`
 
@@ -483,7 +486,7 @@ func (r *TicketRepository) AssignTicketToCustomer(ctx context.Context, ticketID,
 func (r *TicketRepository) ReserveTicket(ctx context.Context, ticketID int64, customerID int64) error {
 	query := `
 		UPDATE tickets 
-		SET status = 'reserved', customer_id = $1, updated_at = CURRENT_TIMESTAMP 
+		SET status = 'reserved', user_id = (SELECT public_id FROM customers WHERE id = $1), updated_at = CURRENT_TIMESTAMP 
 		WHERE id = $2 AND status = 'available'
 	`
 
@@ -505,7 +508,7 @@ func (r *TicketRepository) ReserveTicket(ctx context.Context, ticketID int64, cu
 type TicketFilters struct {
 	EventID    *int64
 	CategoryID *int64
-	CustomerID *int64
+	UserID     *string // ✅ CORREGIDO: Ahora usa UserID (string/UUID)
 	Status     *string
 	Code       *string
 	DateFrom   *time.Time
@@ -537,9 +540,9 @@ func (r *TicketRepository) buildTicketWhereClause(filters *TicketFilters) (strin
 			params = append(params, *filters.CategoryID)
 			paramCount++
 		}
-		if filters.CustomerID != nil {
-			conditions = append(conditions, fmt.Sprintf("customer_id = $%d", paramCount))
-			params = append(params, *filters.CustomerID)
+		if filters.UserID != nil {
+			conditions = append(conditions, fmt.Sprintf("user_id = $%d", paramCount))
+			params = append(params, *filters.UserID)
 			paramCount++
 		}
 		if filters.Status != nil {
