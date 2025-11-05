@@ -34,7 +34,7 @@ func NewServer(customerRepo *repository.CustomerRepository, ticketRepo *reposito
 func (s *Server) CreateEvent(ctx context.Context, req *pb.EventRequest) (*pb.EventResponse, error) {
 	log.Printf("Creating event: %s", req.Name)
 
-	// ✅ PROFESIONAL: Validación exhaustiva de campos de negocio
+	// Validaciones de campos requeridos
 	if req.Name == "" {
 		return nil, fmt.Errorf("event name is required")
 	}
@@ -45,13 +45,12 @@ func (s *Server) CreateEvent(ctx context.Context, req *pb.EventRequest) (*pb.Eve
 		return nil, fmt.Errorf("max_attendees must be non-negative")
 	}
 
-	// ✅ PROFESIONAL: Generación controlada de UUID
-	publicID := uuid.New()
-	publicIDStr := publicID.String()
+	// Generar UUID para el evento
+	publicID := uuid.New().String()
 
-	// ✅ PROFESIONAL: Mapeo estructurado con valores por defecto
+	// Mapear request a modelo Event
 	event := &models.Event{
-		PublicID:         publicIDStr,
+		PublicID:         publicID,
 		Name:             req.Name,
 		Location:         req.Location,
 		Description:      toPgText(req.Description),
@@ -66,27 +65,23 @@ func (s *Server) CreateEvent(ctx context.Context, req *pb.EventRequest) (*pb.Eve
 		MaxAttendees:     toPgInt4(req.MaxAttendees),
 	}
 
-	// ✅ PROFESIONAL: Parseo robusto de fechas con timezone awareness
+	// Parsear fechas
 	event.StartDate, event.EndDate = s.parseEventDates(req.StartDate, req.EndDate)
 
-	// ✅ PROFESIONAL: Auditoría de creación
-	log.Printf("Creating event with public_id: %s", publicIDStr)
-
-	// Crear evento - el ID interno se ignora intencionalmente (solo usamos public_id)
-	_, err := s.EventRepo.CreateEvent(ctx, event)
+	// Crear evento en la base de datos
+	eventID, err := s.EventRepo.CreateEvent(ctx, event)
 	if err != nil {
 		log.Printf("Error creating event: %v", err)
 		return nil, fmt.Errorf("error inserting event: %v", err)
 	}
 
-	// ✅ PROFESIONAL: Obtener evento completo para respuesta (evita data inconsistency)
-	createdEvent, err := s.EventRepo.GetEventByPublicID(ctx, publicIDStr)
+	// Obtener el evento creado para respuesta completa
+	createdEvent, err := s.EventRepo.GetEventByPublicID(ctx, publicID)
 	if err != nil {
 		log.Printf("Error retrieving created event: %v", err)
 		return nil, fmt.Errorf("event created but retrieval failed: %v", err)
 	}
 
-	// ✅ PROFESIONAL: Auditoría de éxito
 	log.Printf("Event created successfully: %s (ID: %d)", createdEvent.PublicID, createdEvent.ID)
 
 	return s.mapEventToResponse(createdEvent), nil
@@ -96,7 +91,7 @@ func (s *Server) CreateEvent(ctx context.Context, req *pb.EventRequest) (*pb.Eve
 func (s *Server) GetEvent(ctx context.Context, req *pb.EventLookup) (*pb.EventResponse, error) {
 	log.Printf("Getting event: %s", req.PublicId)
 
-	// ✅ PROFESIONAL: Validación estricta de UUID
+	// Validar que el public_id sea UUID válido
 	if _, err := uuid.Parse(req.PublicId); err != nil {
 		return nil, fmt.Errorf("invalid event ID format: must be a valid UUID")
 	}
@@ -132,7 +127,7 @@ func (s *Server) ListEvents(ctx context.Context, req *pb.Empty) (*pb.EventListRe
 func (s *Server) CreateCustomer(ctx context.Context, req *pb.CustomerRequest) (*pb.CustomerResponse, error) {
 	log.Printf("Creating customer: %s, email: %s", req.Name, req.Email)
 
-	// ✅ PROFESIONAL: Validación de dominio de negocio
+	// Validaciones
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
@@ -143,19 +138,19 @@ func (s *Server) CreateCustomer(ctx context.Context, req *pb.CustomerRequest) (*
 		return nil, fmt.Errorf("invalid email format")
 	}
 
-	// ✅ PROFESIONAL: Validación de formato E.164
+	// Validar formato de teléfono
 	if req.Phone != "" && !isValidE164(req.Phone) {
 		return nil, fmt.Errorf("invalid phone format. Use E.164 format: +1234567890")
 	}
 
-	// ✅ PROFESIONAL: El repository ahora maneja int64 directamente
+	// Crear cliente
 	customerID, err := s.CustomerRepo.CreateCustomer(ctx, req.Name, req.Email, req.Phone)
 	if err != nil {
 		log.Printf("Error creating customer: %v", err)
 		return nil, fmt.Errorf("error creating customer: %v", err)
 	}
 
-	// ✅ PROFESIONAL: Usando int64 directamente - sin conversiones peligrosas
+	// Obtener el cliente creado
 	customer, err := s.CustomerRepo.GetCustomerByID(ctx, customerID)
 	if err != nil {
 		log.Printf("Error retrieving created customer: %v", err)
@@ -177,12 +172,10 @@ func (s *Server) CreateCustomer(ctx context.Context, req *pb.CustomerRequest) (*
 func (s *Server) GetCustomer(ctx context.Context, req *pb.CustomerLookup) (*pb.CustomerResponse, error) {
 	log.Printf("Getting customer with ID: %d", req.Id)
 
-	// ✅ PROFESIONAL: Validación de ID de negocio
 	if req.Id <= 0 {
 		return nil, fmt.Errorf("customer ID must be positive")
 	}
 
-	// ✅ PROFESIONAL: Usando int64 directamente
 	customer, err := s.CustomerRepo.GetCustomerByID(ctx, int64(req.Id))
 	if err != nil {
 		log.Printf("Error getting customer: %v", err)
@@ -202,7 +195,7 @@ func (s *Server) GetCustomer(ctx context.Context, req *pb.CustomerLookup) (*pb.C
 func (s *Server) CreateUser(ctx context.Context, req *pb.UserRequest) (*pb.UserResponse, error) {
 	log.Printf("Creating user: %s", req.Name)
 
-	// ✅ PROFESIONAL: Validación de dominio
+	// Validaciones
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
@@ -210,15 +203,16 @@ func (s *Server) CreateUser(ctx context.Context, req *pb.UserRequest) (*pb.UserR
 		return nil, fmt.Errorf("invalid email format")
 	}
 
-	// ✅ PROFESIONAL: Usando int64 directamente
-	userID, err := s.CustomerRepo.CreateCustomer(ctx, req.Name, req.Email, "")
+	// En tu esquema, users y customers están separados
+	// Por ahora, creamos solo el customer (esto necesita ajustarse según tu lógica de negocio)
+	customerID, err := s.CustomerRepo.CreateCustomer(ctx, req.Name, req.Email, "")
 	if err != nil {
 		log.Printf("Error creating user: %v", err)
 		return nil, fmt.Errorf("error creating user: %v", err)
 	}
 
-	// ✅ PROFESIONAL: Usando int64 directamente
-	customer, err := s.CustomerRepo.GetCustomerByID(ctx, userID)
+	// Obtener el customer creado
+	customer, err := s.CustomerRepo.GetCustomerByID(ctx, customerID)
 	if err != nil {
 		log.Printf("Error retrieving created user: %v", err)
 		return nil, fmt.Errorf("user created but retrieval failed: %v", err)
@@ -236,28 +230,37 @@ func (s *Server) CreateUser(ctx context.Context, req *pb.UserRequest) (*pb.UserR
 func (s *Server) CreateTicket(ctx context.Context, req *pb.TicketRequest) (*pb.TicketResponse, error) {
 	log.Printf("Creating ticket for event: %s, user: %s", req.EventId, req.UserId)
 
-	// ✅ PROFESIONAL: Validación exhaustiva
+	// Validaciones
 	if req.EventId == "" {
 		return nil, fmt.Errorf("event_id is required")
 	}
 	if req.UserId == "" {
 		return nil, fmt.Errorf("user_id is required")
 	}
+	if req.CategoryId == "" {
+		return nil, fmt.Errorf("category_id is required")
+	}
 
-	// ✅ PROFESIONAL: Validación estricta de UUIDs
+	// Validar UUIDs
 	if _, err := uuid.Parse(req.EventId); err != nil {
 		return nil, fmt.Errorf("invalid event ID format: must be a valid UUID")
 	}
 	if _, err := uuid.Parse(req.UserId); err != nil {
 		return nil, fmt.Errorf("invalid user ID format: must be a valid UUID")
 	}
+	if _, err := uuid.Parse(req.CategoryId); err != nil {
+		return nil, fmt.Errorf("invalid category ID format: must be a valid UUID")
+	}
 
+	// IMPORTANTE: En tu esquema, tickets se crean via transactions
+	// Por ahora, creamos el ticket directamente (esto necesita transacciones)
 	ticketPublicID, err := s.TicketRepo.CreateTicket(ctx, req)
 	if err != nil {
 		log.Printf("Error creating ticket: %v", err)
 		return nil, fmt.Errorf("error creating ticket: %v", err)
 	}
 
+	// Obtener el ticket creado
 	ticket, err := s.TicketRepo.GetTicketByPublicID(ctx, ticketPublicID)
 	if err != nil {
 		log.Printf("Error retrieving created ticket: %v", err)
@@ -278,12 +281,14 @@ func (s *Server) CreateTicket(ctx context.Context, req *pb.TicketRequest) (*pb.T
 func (s *Server) ListTickets(ctx context.Context, req *pb.UserLookup) (*pb.TicketListResponse, error) {
 	log.Printf("Listing tickets for user: %s", req.UserId)
 
-	// ✅ PROFESIONAL: Validación estricta
+	// Validar UUID
 	if _, err := uuid.Parse(req.UserId); err != nil {
 		return nil, fmt.Errorf("invalid user ID format: must be a valid UUID")
 	}
 
-	tickets, err := s.TicketRepo.GetTicketsByUserID(ctx, req.UserId)
+	// IMPORTANTE: En tu esquema, tickets se obtienen via transactions -> customers
+	// Por ahora, asumimos que user_id es customer_id (esto necesita ajustarse)
+	tickets, err := s.TicketRepo.GetTicketsByCustomerID(ctx, req.UserId)
 	if err != nil {
 		log.Printf("Error listing tickets: %v", err)
 		return nil, fmt.Errorf("error querying tickets by user: %v", err)
@@ -306,7 +311,7 @@ func (s *Server) ListTickets(ctx context.Context, req *pb.UserLookup) (*pb.Ticke
 	}, nil
 }
 
-// ✅ PROFESIONAL: Helper methods para mejor organización
+// Helper methods
 func (s *Server) parseEventDates(startDateStr, endDateStr string) (time.Time, time.Time) {
 	var startDate, endDate time.Time
 	now := time.Now()
@@ -331,7 +336,6 @@ func (s *Server) parseEventDates(startDateStr, endDateStr string) (time.Time, ti
 		endDate = startDate.Add(2 * time.Hour)
 	}
 
-	// ✅ PROFESIONAL: Validación de lógica de negocio
 	if endDate.Before(startDate) {
 		endDate = startDate.Add(2 * time.Hour)
 	}
@@ -383,7 +387,7 @@ func pgInt4ToInt32(i pgtype.Int4) int32 {
 	return 0
 }
 
-// ✅ PROFESIONAL: Validaciones robustas
+// Validaciones
 func isValidE164(phone string) bool {
 	e164Regex := `^\+[1-9]\d{1,14}$`
 	matched, _ := regexp.MatchString(e164Regex, phone)

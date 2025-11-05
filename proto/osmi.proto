@@ -7,6 +7,7 @@ option go_package = "github.com/franciscozamorau/osmi-proto/gen;osmi";
 import "google/api/annotations.proto";
 
 service OsmiService {
+  // Tickets
   rpc CreateTicket(TicketRequest) returns (TicketResponse) {
     option (google.api.http) = {
       post: "/tickets"
@@ -20,6 +21,7 @@ service OsmiService {
     };
   }
 
+  // Customers
   rpc CreateCustomer(CustomerRequest) returns (CustomerResponse) {
     option (google.api.http) = {
       post: "/customers"
@@ -33,6 +35,7 @@ service OsmiService {
     };
   }
 
+  // Users
   rpc CreateUser(UserRequest) returns (UserResponse) {
     option (google.api.http) = {
       post: "/users"
@@ -40,6 +43,7 @@ service OsmiService {
     };
   }
 
+  // Events
   rpc CreateEvent(EventRequest) returns (EventResponse) {
     option (google.api.http) = {
       post: "/events"
@@ -58,30 +62,44 @@ service OsmiService {
       get: "/events"
     };
   }
+
+  // Categories
+  rpc GetEventCategories(EventLookup) returns (CategoryListResponse) {
+    option (google.api.http) = {
+      get: "/events/{public_id}/categories"
+    };
+  }
 }
 
-// Mensajes (usa los de osmi-server que son más completos)
+// ============ TICKETS ============
 message TicketRequest {
-  string event_id = 1;
-  string user_id = 2;
-  string category_id = 3;
+  string event_id = 1;      // UUID del evento
+  string user_id = 2;       // UUID del usuario/customer
+  string category_id = 3;   // UUID de la categoría
 }
 
 message TicketResponse {
-  string ticket_id = 1;
-  string status = 2;
-  string code = 3;
-  string qr_code_url = 4;
+  string ticket_id = 1;     // UUID público del ticket
+  string status = 2;        // available, reserved, sold, used, cancelled
+  string code = 3;          // Código único del ticket
+  string qr_code_url = 4;   // URL del QR code
+  string event_name = 5;    // Nombre del evento (para UI)
+  string event_date = 6;    // Fecha del evento
+  string location = 7;      // Ubicación del evento
 }
 
 message TicketListResponse {
   repeated TicketResponse tickets = 1;
 }
 
+// ============ CUSTOMERS ============
 message CustomerRequest {
   string name = 1;
   string email = 2;
   string phone = 3;
+  string date_of_birth = 4;     // Formato YYYY-MM-DD
+  string address = 5;           // JSON string
+  string preferences = 6;       // JSON string
 }
 
 message CustomerLookup {
@@ -93,66 +111,127 @@ message CustomerResponse {
   string name = 2;
   string email = 3;
   string phone = 4;
-  string public_id = 5;
+  string public_id = 5;         // UUID público
+  string date_of_birth = 6;
+  string address = 7;           // JSON string
+  string preferences = 8;       // JSON string
+  int32 loyalty_points = 9;
+  bool is_verified = 10;
+  string created_at = 11;
+  string updated_at = 12;
 }
 
+// ============ USERS ============
 message UserRequest {
-  string user_id = 1;
-  string name = 2;
-  string email = 3;
+  string name = 1;
+  string email = 2;
+  string password = 3;          // Para autenticación futura
+  string role = 4;              // customer, organizer, admin
 }
 
 message UserResponse {
-  string user_id = 1;
-  string status = 2;
+  string user_id = 1;           // UUID público
+  string status = 2;            // active, inactive
+  string name = 3;
+  string email = 4;
+  string role = 5;
+  string created_at = 6;
 }
 
 message UserLookup {
-  string user_id = 1;
+  string user_id = 1;           // UUID público
 }
 
+// ============ EVENTS ============
 message EventRequest {
   string name = 1;
   string description = 2;
   string short_description = 3;
-  string start_date = 4;
-  string end_date = 5;
+  string start_date = 4;        // RFC3339 format
+  string end_date = 5;          // RFC3339 format
   string location = 6;
   string venue_details = 7;
   string category = 8;
-  string tags = 9;
+  string tags = 9;              // JSON array string
   bool is_active = 10;
   bool is_published = 11;
   string image_url = 12;
   string banner_url = 13;
   int32 max_attendees = 14;
+  double latitude = 15;         // Para coordenadas
+  double longitude = 16;        // Para coordenadas
+  int32 organizer_id = 17;      // ID del organizador
 }
 
 message EventResponse {
   int32 id = 1;
-  string public_id = 2;
+  string public_id = 2;         // UUID público
   string name = 3;
   string description = 4;
   string short_description = 5;
-  string start_date = 6;
-  string end_date = 7;
+  string start_date = 6;        // RFC3339 format
+  string end_date = 7;          // RFC3339 format
   string location = 8;
   string venue_details = 9;
   string category = 10;
-  string tags = 11;
+  string tags = 11;             // JSON array string
   bool is_active = 12;
   bool is_published = 13;
   string image_url = 14;
   string banner_url = 15;
   int32 max_attendees = 16;
+  double latitude = 17;         // Para coordenadas
+  double longitude = 18;        // Para coordenadas
+  int32 organizer_id = 19;
+  string created_at = 20;
+  string updated_at = 21;
 }
 
 message EventLookup {
-  string public_id = 1;
+  string public_id = 1;         // UUID público
 }
 
 message EventListResponse {
   repeated EventResponse events = 1;
 }
 
+// ============ CATEGORIES ============
+message CategoryResponse {
+  string public_id = 1;         // UUID público
+  string name = 2;
+  string description = 3;
+  double price = 4;
+  int32 quantity_available = 5;
+  int32 quantity_sold = 6;
+  int32 max_tickets_per_order = 7;
+  string sales_start = 8;       // RFC3339 format
+  string sales_end = 9;         // RFC3339 format
+  bool is_active = 10;
+  repeated string benefits = 11; // Beneficios incluidos
+}
+
+message CategoryListResponse {
+  repeated CategoryResponse categories = 1;
+}
+
+// ============ TRANSACTIONS ============
+// (Para futura implementación)
+message TransactionRequest {
+  string customer_id = 1;       // UUID del customer
+  repeated string ticket_ids = 2; // UUIDs de tickets
+  string promotion_code = 3;    // Código de promoción opcional
+}
+
+message TransactionResponse {
+  string transaction_id = 1;    // UUID público
+  double amount = 2;
+  double discount_amount = 3;
+  double final_amount = 4;
+  string status = 5;           // pending, completed, failed
+  string stripe_session_id = 6; // Para integración Stripe
+  string receipt_url = 7;
+  string created_at = 8;
+}
+
+// ============ COMMON ============
 message Empty {}

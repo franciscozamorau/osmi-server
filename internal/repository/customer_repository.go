@@ -7,7 +7,6 @@ import (
 	"log"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/franciscozamorau/osmi-server/internal/db"
 	"github.com/franciscozamorau/osmi-server/internal/models"
@@ -58,14 +57,6 @@ func (r *CustomerRepository) CreateCustomer(ctx context.Context, name, email, ph
 		return 0, fmt.Errorf("error creating customer: %v", err)
 	}
 
-	// Auditoría estructurada
-	auditCtx := &AuditContext{
-		UserID:    "system", // En un caso real, obtener del contexto
-		IPAddress: "127.0.0.1",
-		UserAgent: "osmi-server",
-	}
-	r.auditCustomerChange(ctx, "INSERT", nil, id, auditCtx)
-
 	log.Printf("Customer created: %s (ID: %d)", email, id)
 	return id, nil
 }
@@ -107,6 +98,43 @@ func (r *CustomerRepository) GetCustomerByID(ctx context.Context, id int64) (*mo
 	return &customer, nil
 }
 
+// GetCustomerByPublicID obtiene un cliente por public_id
+func (r *CustomerRepository) GetCustomerByPublicID(ctx context.Context, publicID string) (*models.Customer, error) {
+	query := `
+		SELECT id, public_id, name, email, phone, date_of_birth, address, 
+		       preferences, loyalty_points, is_verified, verification_token,
+		       created_at, updated_at
+		FROM customers 
+		WHERE public_id = $1
+	`
+
+	var customer models.Customer
+	err := db.Pool.QueryRow(ctx, query, publicID).Scan(
+		&customer.ID,
+		&customer.PublicID,
+		&customer.Name,
+		&customer.Email,
+		&customer.Phone,
+		&customer.DateOfBirth,
+		&customer.Address,
+		&customer.Preferences,
+		&customer.LoyaltyPoints,
+		&customer.IsVerified,
+		&customer.VerificationToken,
+		&customer.CreatedAt,
+		&customer.UpdatedAt,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("customer not found with public_id: %s", publicID)
+		}
+		return nil, fmt.Errorf("error getting customer by public_id: %v", err)
+	}
+
+	return &customer, nil
+}
+
 // GetCustomerByEmail obtiene un cliente por email
 func (r *CustomerRepository) GetCustomerByEmail(ctx context.Context, email string) (*models.Customer, error) {
 	query := `
@@ -136,7 +164,7 @@ func (r *CustomerRepository) GetCustomerByEmail(ctx context.Context, email strin
 
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("customer not found with email: %s", email)
+			return nil, nil // No es error, simplemente no existe
 		}
 		return nil, fmt.Errorf("error getting customer by email: %v", err)
 	}
@@ -145,15 +173,9 @@ func (r *CustomerRepository) GetCustomerByEmail(ctx context.Context, email strin
 }
 
 // UpdateCustomer actualiza un cliente existente
-func (r *CustomerRepository) UpdateCustomer(ctx context.Context, id int, name, email, phone string) error {
+func (r *CustomerRepository) UpdateCustomer(ctx context.Context, id int64, name, email, phone string) error {
 	// Validaciones
 	if err := r.validateCustomerData(name, email, phone); err != nil {
-		return err
-	}
-
-	// Obtener datos antiguos para auditoría
-	oldCustomer, err := r.GetCustomerByID(ctx, int64(id))
-	if err != nil {
 		return err
 	}
 
@@ -175,26 +197,12 @@ func (r *CustomerRepository) UpdateCustomer(ctx context.Context, id int, name, e
 		return fmt.Errorf("customer not found with id: %d", id)
 	}
 
-	// Auditoría estructurada
-	auditCtx := &AuditContext{
-		UserID:    "system",
-		IPAddress: "127.0.0.1",
-		UserAgent: "osmi-server",
-	}
-	r.auditCustomerChange(ctx, "UPDATE", oldCustomer, int64(id), auditCtx)
-
 	log.Printf("Customer updated: %s (ID: %d)", email, id)
 	return nil
 }
 
 // DeleteCustomer elimina un cliente
-func (r *CustomerRepository) DeleteCustomer(ctx context.Context, id int) error {
-	// Obtener datos para auditoría antes de eliminar
-	oldCustomer, err := r.GetCustomerByID(ctx, int64(id))
-	if err != nil {
-		return err
-	}
-
+func (r *CustomerRepository) DeleteCustomer(ctx context.Context, id int64) error {
 	query := `DELETE FROM customers WHERE id = $1`
 
 	result, err := db.Pool.Exec(ctx, query, id)
@@ -205,14 +213,6 @@ func (r *CustomerRepository) DeleteCustomer(ctx context.Context, id int) error {
 	if result.RowsAffected() == 0 {
 		return fmt.Errorf("customer not found with id: %d", id)
 	}
-
-	// Auditoría estructurada
-	auditCtx := &AuditContext{
-		UserID:    "system",
-		IPAddress: "127.0.0.1",
-		UserAgent: "osmi-server",
-	}
-	r.auditCustomerChange(ctx, "DELETE", oldCustomer, int64(id), auditCtx)
 
 	log.Printf("Customer deleted: ID %d", id)
 	return nil
@@ -340,13 +340,19 @@ func (r *CustomerRepository) ListVerifiedCustomers(ctx context.Context, limit, o
 	return customers, nil
 }
 
-// Helper types and functions
-
-type AuditContext struct {
-	UserID    string
-	IPAddress string
-	UserAgent string
-	Metadata  map[string]interface{}
+// GetCustomerIDByPublicID obtiene el ID interno de un cliente por su public_id
+func (r *CustomerRepository) GetCustomerIDByPublicID(ctx context.Context, publicID string) (int64, error) {
+	var customerID int64
+	err := db.Pool.QueryRow(ctx,
+		"SELECT id FROM customers WHERE public_id = $1",
+		publicID).Scan(&customerID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return 0, fmt.Errorf("customer not found with public_id: %s", publicID)
+		}
+		return 0, fmt.Errorf("error getting customer ID by public_id: %v", err)
+	}
+	return customerID, nil
 }
 
 // validateCustomerData valida los datos del cliente
@@ -364,26 +370,6 @@ func (r *CustomerRepository) validateCustomerData(name, email, phone string) err
 	}
 
 	return nil
-}
-
-// auditCustomerChange realiza auditoría estructurada de cambios
-func (r *CustomerRepository) auditCustomerChange(ctx context.Context, operation string, oldCustomer *models.Customer, customerID int64, auditCtx *AuditContext) {
-	auditPayload := map[string]interface{}{
-		"operation":   operation,
-		"customer_id": customerID,
-		"timestamp":   time.Now().UTC(),
-		"context":     auditCtx,
-	}
-
-	if oldCustomer != nil {
-		auditPayload["old_data"] = map[string]interface{}{
-			"name":  oldCustomer.Name,
-			"email": oldCustomer.Email,
-			"phone": oldCustomer.Phone.String,
-		}
-	}
-
-	log.Printf("Customer audit - %s: %+v", operation, auditPayload)
 }
 
 // isDuplicateKeyError verifica si el error es por violación de unique constraint
