@@ -13,11 +13,13 @@ import (
 
 	pb "github.com/franciscozamorau/osmi-server/gen"
 	"github.com/franciscozamorau/osmi-server/internal/db"
+	"github.com/franciscozamorau/osmi-server/internal/models"
 	"github.com/franciscozamorau/osmi-server/internal/repository"
 	"github.com/franciscozamorau/osmi-server/internal/service"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/joho/godotenv"
 )
@@ -34,6 +36,8 @@ type server struct {
 	pb.UnimplementedOsmiServiceServer
 	customerRepo *repository.CustomerRepository
 	ticketRepo   *repository.TicketRepository
+	eventRepo    *repository.EventRepository
+	userRepo     *repository.UserRepository
 }
 
 // NewServer crea una nueva instancia del servidor
@@ -41,6 +45,8 @@ func NewServer() *server {
 	return &server{
 		customerRepo: repository.NewCustomerRepository(),
 		ticketRepo:   repository.NewTicketRepository(),
+		eventRepo:    repository.NewEventRepository(),
+		userRepo:     repository.NewUserRepository(),
 	}
 }
 
@@ -73,14 +79,12 @@ func (s *server) CreateTicket(ctx context.Context, req *pb.TicketRequest) (*pb.T
 func (s *server) CreateCustomer(ctx context.Context, req *pb.CustomerRequest) (*pb.CustomerResponse, error) {
 	log.Printf("Creating customer: %s, email: %s", req.Name, req.Email)
 
-	// ✅ CORREGIDO: Usar el ID generado por CreateCustomer, no req.Id (que no existe)
 	customerID, err := s.customerRepo.CreateCustomer(ctx, req.Name, req.Email, req.Phone)
 	if err != nil {
 		log.Printf("Error creating customer: %v", err)
 		return nil, err
 	}
 
-	// ✅ CORREGIDO: Usar customerID (el ID generado) en lugar de req.Id
 	customer, err := s.customerRepo.GetCustomerByID(ctx, customerID)
 	if err != nil {
 		log.Printf("Error getting created customer: %v", err)
@@ -98,12 +102,32 @@ func (s *server) CreateCustomer(ctx context.Context, req *pb.CustomerRequest) (*
 
 // GetCustomer implementa el método gRPC para obtener clientes
 func (s *server) GetCustomer(ctx context.Context, req *pb.CustomerLookup) (*pb.CustomerResponse, error) {
-	log.Printf("Getting customer with ID: %d", req.Id)
+	var customer *models.Customer
+	var err error
 
-	customer, err := s.customerRepo.GetCustomerByID(ctx, int64(req.Id))
+	switch lookup := req.Lookup.(type) {
+	case *pb.CustomerLookup_Id:
+		log.Printf("Getting customer by ID: %d", lookup.Id)
+		if lookup.Id <= 0 {
+			return nil, fmt.Errorf("customer ID must be positive")
+		}
+		customer, err = s.customerRepo.GetCustomerByID(ctx, int64(lookup.Id))
+
+	case *pb.CustomerLookup_PublicId:
+		log.Printf("Getting customer by PublicId: %s", lookup.PublicId)
+		customer, err = s.customerRepo.GetCustomerByPublicID(ctx, lookup.PublicId)
+
+	case *pb.CustomerLookup_Email:
+		log.Printf("Getting customer by Email: %s", lookup.Email)
+		customer, err = s.customerRepo.GetCustomerByEmail(ctx, lookup.Email)
+
+	default:
+		return nil, fmt.Errorf("no valid lookup parameter provided")
+	}
+
 	if err != nil {
 		log.Printf("Error getting customer: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("customer not found")
 	}
 
 	return &pb.CustomerResponse{
@@ -115,10 +139,114 @@ func (s *server) GetCustomer(ctx context.Context, req *pb.CustomerLookup) (*pb.C
 	}, nil
 }
 
+// CreateUser implementa el método gRPC para crear usuarios
+func (s *server) CreateUser(ctx context.Context, req *pb.UserRequest) (*pb.UserResponse, error) {
+	log.Printf("Creating user: %s, email: %s", req.Name, req.Email)
+
+	// Usar el user repository para crear usuarios
+	userID, err := s.userRepo.CreateUser(ctx, req.Name, req.Email, req.Password, req.Role)
+	if err != nil {
+		log.Printf("Error creating user: %v", err)
+		return nil, err
+	}
+
+	user, err := s.userRepo.GetUserByID(ctx, userID)
+	if err != nil {
+		log.Printf("Error getting created user: %v", err)
+		return nil, err
+	}
+
+	return &pb.UserResponse{
+		UserId:    user.PublicID,
+		Status:    "active",
+		Name:      user.Username,
+		Email:     user.Email,
+		Role:      user.Role,
+		CreatedAt: timestamppb.New(user.CreatedAt),
+	}, nil
+}
+
+// CreateEvent implementa el método gRPC para crear eventos
+func (s *server) CreateEvent(ctx context.Context, req *pb.EventRequest) (*pb.EventResponse, error) {
+	log.Printf("Creating event: %s", req.Name)
+
+	// Usar el service.Server en lugar de implementar aquí
+	serviceServer := &service.Server{
+		EventRepo: s.eventRepo,
+	}
+	return serviceServer.CreateEvent(ctx, req)
+}
+
+// GetEvent implementa el método gRPC para obtener eventos
+func (s *server) GetEvent(ctx context.Context, req *pb.EventLookup) (*pb.EventResponse, error) {
+	log.Printf("Getting event: %s", req.PublicId)
+
+	// Usar el service.Server en lugar de implementar aquí
+	serviceServer := &service.Server{
+		EventRepo: s.eventRepo,
+	}
+	return serviceServer.GetEvent(ctx, req)
+}
+
+// ListEvents implementa el método gRPC para listar eventos
+func (s *server) ListEvents(ctx context.Context, req *pb.Empty) (*pb.EventListResponse, error) {
+	log.Println("Listing all events")
+
+	// Usar el service.Server en lugar de implementar aquí
+	serviceServer := &service.Server{
+		EventRepo: s.eventRepo,
+	}
+	return serviceServer.ListEvents(ctx, req)
+}
+
+// ListTickets implementa el método gRPC para listar tickets
+func (s *server) ListTickets(ctx context.Context, req *pb.UserLookup) (*pb.TicketListResponse, error) {
+	log.Printf("Listing tickets for user: %s", req.UserId)
+
+	tickets, err := s.ticketRepo.GetTicketsByCustomerID(ctx, req.UserId)
+	if err != nil {
+		log.Printf("Error listing tickets: %v", err)
+		return nil, err
+	}
+
+	pbTickets := make([]*pb.TicketResponse, 0, len(tickets))
+	for _, ticket := range tickets {
+		pbTickets = append(pbTickets, &pb.TicketResponse{
+			TicketId:  ticket.PublicID,
+			Status:    ticket.Status,
+			Code:      ticket.Code,
+			QrCodeUrl: ticket.QRCodeURL.String,
+		})
+	}
+
+	return &pb.TicketListResponse{
+		Tickets:    pbTickets,
+		TotalCount: int32(len(pbTickets)),
+	}, nil
+}
+
+// HealthCheck implementa el health check gRPC
+func (s *server) HealthCheck(ctx context.Context, req *pb.Empty) (*pb.HealthResponse, error) {
+	return &pb.HealthResponse{
+		Status:  "healthy",
+		Service: "osmi-server",
+		Version: "1.0.0",
+	}, nil
+}
+
+// GetEventCategories implementa el método para obtener categorías de evento
+func (s *server) GetEventCategories(ctx context.Context, req *pb.EventLookup) (*pb.CategoryListResponse, error) {
+	log.Printf("Getting categories for event: %s", req.PublicId)
+	return &pb.CategoryListResponse{
+		EventName:     "Event Placeholder",
+		EventPublicId: req.PublicId,
+		Categories:    []*pb.CategoryResponse{},
+	}, nil
+}
+
 // startHealthServer inicia el servidor HTTP para health checks
 func startHealthServer(port string) {
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		// Verificar salud de la base de datos
 		if err := db.HealthCheck(); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			fmt.Fprintf(w, `{"status": "unhealthy", "error": "%s"}`, err.Error())
@@ -130,7 +258,6 @@ func startHealthServer(port string) {
 	})
 
 	http.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
-		// Verificar readiness (más estricto que health)
 		if db.Pool == nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			fmt.Fprintf(w, `{"status": "not ready", "error": "database not connected"}`)
@@ -182,24 +309,17 @@ func main() {
 		log.Fatalf("Failed to listen: %v", err)
 	}
 
-	// ✅ MEJORA PROFESIONAL: Crear servidor gRPC con interceptores básicos
+	// Crear servidor gRPC
 	grpcServer := grpc.NewServer(
-		grpc.MaxRecvMsgSize(10*1024*1024), // 10MB
-		grpc.MaxSendMsgSize(10*1024*1024), // 10MB
-		// ✅ FUTURA MEJORA: Agregar interceptores aquí
-		// grpc.ChainUnaryInterceptor(
-		// 	loggingInterceptor,
-		// 	metricsInterceptor,
-		// 	authInterceptor,
-		// ),
+		grpc.MaxRecvMsgSize(10*1024*1024),
+		grpc.MaxSendMsgSize(10*1024*1024),
 	)
 
+	// Crear instancia del servidor
+	srv := NewServer()
+
 	// Registrar servicio principal
-	pb.RegisterOsmiServiceServer(grpcServer, &service.Server{
-		CustomerRepo: repository.NewCustomerRepository(),
-		TicketRepo:   repository.NewTicketRepository(),
-		EventRepo:    repository.NewEventRepository(),
-	})
+	pb.RegisterOsmiServiceServer(grpcServer, srv)
 
 	// Registrar servicio de health check gRPC
 	healthServer := health.NewServer()
@@ -208,7 +328,7 @@ func main() {
 
 	log.Println("Osmi gRPC server running on port 50051")
 
-	// ✅ MEJORA PROFESIONAL: Configurar graceful shutdown robusto
+	// Configurar graceful shutdown
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
@@ -216,10 +336,8 @@ func main() {
 		<-stop
 		log.Println("Shutdown signal received")
 
-		// Cambiar estado de health check
 		healthServer.SetServingStatus("osmi.OsmiService", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
 
-		// Dar tiempo para que las conexiones actuales terminen
 		log.Println("Waiting for ongoing requests to complete...")
 		time.Sleep(5 * time.Second)
 
@@ -234,42 +352,3 @@ func main() {
 
 	log.Println("Server shutdown complete")
 }
-
-// ✅ FUTURAS MEJORAS PROFESIONALES (para implementar después):
-
-// loggingInterceptor - Interceptor para logging estructurado
-/*
-func loggingInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	start := time.Now()
-	resp, err := handler(ctx, req)
-	duration := time.Since(start)
-
-	// Log estructurado con campos
-	log.Printf("gRPC call: %s, duration: %v, error: %v", info.FullMethod, duration, err)
-	return resp, err
-}
-*/
-
-// metricsInterceptor - Interceptor para métricas Prometheus
-/*
-func metricsInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	// Registrar métricas aquí
-	// requestCounter.WithLabelValues(info.FullMethod).Inc()
-	start := time.Now()
-	resp, err := handler(ctx, req)
-	duration := time.Since(start)
-	// requestDuration.WithLabelValues(info.FullMethod).Observe(duration.Seconds())
-
-	_ = duration // Evitar warning de variable no usada
-	return resp, err
-}
-*/
-
-// startMetricsServer - Servidor para métricas Prometheus
-/*
-func startMetricsServer(port string) {
-	http.Handle("/metrics", promhttp.Handler())
-	log.Printf("Metrics server running on port %s", port)
-	http.ListenAndServe(":"+port, nil)
-}
-*/
