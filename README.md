@@ -154,5 +154,70 @@ GRPC_PORT=50051
 HEALTH_PORT=8081
 ```
 
+## COMANDOS EXACTOS PARA REGENERAR CÓDIGO gRPC
+📁 PRIMERO: En el SERVIDOR (osmi-server)
+bash
+# 1. Navegar al directorio del servidor
+cd /c/Users/Desfragmentado/Desktop/Servidor/osmi/osmi-server
+
+# 2. Verificar que tienes el proto actualizado
+ls -la proto/osmi.proto
+
+# 3. Regenerar TODO el código gRPC (esto creará/actualizará los archivos en gen/)
+protoc \
+  --go_out=. \
+  --go-grpc_out=. \
+  --go_opt=paths=source_relative \
+  --go-grpc_opt=paths=source_relative \
+  --grpc-gateway_out=. \
+  --grpc-gateway_opt=paths=source_relative \
+  -I=./proto \
+  -I=./proto/googleapis \
+  proto/osmi.proto
+
+# 4. Verificar que se generaron los archivos
+ls -la gen/
+
+# Deberías ver estos archivos actualizados:
+# osmi.pb.go
+# osmi_grpc.pb.go  
+# osmi.pb.gw.go
+📁 SEGUNDO: En el GATEWAY (osmi-gateway)
+bash
+# 1. Navegar al directorio del gateway
+cd /c/Users/Desfragmentado/Desktop/Servidor/osmi/osmi-gateway
+
+# 2. COPIAR el proto actualizado del servidor al gateway (IMPORTANTE!)
+cp ../osmi-server/proto/osmi.proto proto/
+cp -r ../osmi-server/proto/googleapis proto/
+
+# 3. Regenerar el código del gateway
+protoc \
+  --go_out=. \
+  --go-grpc_out=. \
+  --go_opt=paths=source_relative \
+  --go-grpc_opt=paths=source_relative \
+  --grpc-gateway_out=. \
+  --grpc-gateway_opt=paths=source_relative \
+  -I=./proto \
+  -I=./proto/googleapis \
+  proto/osmi.proto
+
+# 4. Verificar que se generaron los archivos
+ls -la gen/
+🔧 TERCERO: Limpiar y recompilar AMBOS proyectos
+bash
+# En el SERVIDOR
+cd /c/Users/Desfragmentado/Desktop/Servidor/osmi/osmi-server
+go clean -cache
+go mod tidy
+go build -o osmi-server cmd/main.go
+
+# En el GATEWAY  
+cd /c/Users/Desfragmentado/Desktop/Servidor/osmi/osmi-gateway
+go clean -cache
+go mod tidy
+go build -o osmi-gateway cmd/main.go
+
 # Autor
 ### Francisco David Zamora Urrutia Fullstack Developer · Systems Architect · Lyricist

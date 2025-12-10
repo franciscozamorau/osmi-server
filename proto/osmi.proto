@@ -8,38 +8,54 @@ import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
 
 service OsmiService {
-  // Tickets
+  // Tickets - ACTUALIZADOS
   rpc CreateTicket(TicketRequest) returns (TicketResponse) {
     option (google.api.http) = {
-      post: "/tickets"
+      post: "/v1/tickets"
       body: "*"
     };
   }
 
-  rpc ListTickets(UserLookup) returns (TicketListResponse) {
+  // Lista tickets con arquitectura dual
+  rpc ListTickets(TicketLookup) returns (TicketListResponse) {
     option (google.api.http) = {
-      get: "/users/{user_id}/tickets"
+      get: "/v1/tickets"
     };
   }
 
-  // Customers
+  // Detalles de ticket
+  rpc GetTicketDetails(TicketLookup) returns (TicketResponse) {
+    option (google.api.http) = {
+      get: "/v1/tickets/{ticket_id}"
+    };
+  }
+
+  // Actualizar estado de ticket
+  rpc UpdateTicketStatus(UpdateTicketStatusRequest) returns (TicketResponse) {
+    option (google.api.http) = {
+      put: "/v1/tickets/{ticket_id}/status"
+      body: "*"
+    };
+  }
+
+  // Customers - ACTUALIZADOS
   rpc CreateCustomer(CustomerRequest) returns (CustomerResponse) {
     option (google.api.http) = {
-      post: "/customers"
+      post: "/v1/customers"
       body: "*"
     };
   }
 
   rpc GetCustomer(CustomerLookup) returns (CustomerResponse) {
     option (google.api.http) = {
-      get: "/customers/{id}"
+      get: "/v1/customers/{public_id}"
     };
   }
 
   // Users
   rpc CreateUser(UserRequest) returns (UserResponse) {
     option (google.api.http) = {
-      post: "/users"
+      post: "/v1/users"
       body: "*"
     };
   }
@@ -47,27 +63,34 @@ service OsmiService {
   // Events
   rpc CreateEvent(EventRequest) returns (EventResponse) {
     option (google.api.http) = {
-      post: "/events"
+      post: "/v1/events"
       body: "*"
     };
   }
 
   rpc GetEvent(EventLookup) returns (EventResponse) {
     option (google.api.http) = {
-      get: "/events/{public_id}"
+      get: "/v1/events/{public_id}"
     };
   }
 
   rpc ListEvents(Empty) returns (EventListResponse) {
     option (google.api.http) = {
-      get: "/events"
+      get: "/v1/events"
     };
   }
 
   // Categories
+  rpc CreateCategory(CategoryRequest) returns (CategoryResponse) {
+    option (google.api.http) = {
+      post: "/v1/categories"
+      body: "*"
+    };
+  }
+
   rpc GetEventCategories(EventLookup) returns (CategoryListResponse) {
     option (google.api.http) = {
-      get: "/events/{public_id}/categories"
+      get: "/v1/events/{public_id}/categories"
     };
   }
 
@@ -79,25 +102,48 @@ service OsmiService {
   }
 }
 
-// ============ TICKETS ============
+// ============ TICKETS - ACTUALIZADOS ============
 message TicketRequest {
   string event_id = 1;      // UUID del evento (requerido)
-  string user_id = 2;       // UUID del usuario/customer (requerido)
-  string category_id = 3;   // UUID de la categoría (requerido)
-  int32 quantity = 4;       // Cantidad de tickets (default: 1)
+  string customer_id = 2;   // UUID del customer (OBLIGATORIO) - ✅ NUEVA BASE DE DATOS
+  string user_id = 3;       // UUID del usuario (OPCIONAL) - ✅ NUEVA BASE DE DATOS
+  string category_id = 4;   // UUID de la categoría (requerido)
+  int32 quantity = 5;       // Cantidad de tickets (default: 1, max: 10)
+}
+
+message TicketLookup {
+  oneof lookup {
+    string ticket_id = 1;   // Para GetTicketDetails
+    string user_id = 2;     // Para ListTickets (usuarios registrados) - ✅ NUEVA ARQUITECTURA
+    string customer_id = 3; // Para ListTickets (clientes invitados) - ✅ NUEVA ARQUITECTURA
+    string code = 4;        // Para búsqueda por código
+  }
+}
+
+message UpdateTicketStatusRequest {
+  string ticket_id = 1;     // UUID del ticket
+  string status = 2;        // Nuevo estado (available, reserved, sold, used, cancelled, transferred, refunded)
 }
 
 message TicketResponse {
   string ticket_id = 1;     // UUID público del ticket
-  string status = 2;        // available, reserved, sold, used, cancelled
+  string status = 2;        // available, reserved, sold, used, cancelled, transferred, refunded
   string code = 3;          // Código único del ticket
   string qr_code_url = 4;   // URL del QR code
   string event_name = 5;    // Nombre del evento
-  string event_date = 6;    // Fecha del evento
-  string location = 7;      // Ubicación del evento
+  string event_date = 6;    // Fecha del evento (Formato RFC3339)
+  string event_location = 7; // Ubicación del evento
   double price = 8;         // Precio del ticket
   string category_name = 9; // Nombre de la categoría
-  google.protobuf.Timestamp created_at = 10;
+  string seat_number = 10;  // Número de asiento (opcional)
+  string customer_name = 11; // Nombre del cliente
+  string customer_email = 12; // Email del cliente
+  string customer_type = 13; // Tipo de cliente (registered, guest, corporate) - ✅ NUEVO
+  string user_name = 14;    // Nombre de usuario (si aplica)
+  string user_role = 15;    // Rol del usuario (si aplica) - ✅ NUEVO
+  string transaction_status = 16; // Estado de la transacción (opcional) - ✅ NUEVO
+  google.protobuf.Timestamp created_at = 17;
+  google.protobuf.Timestamp used_at = 18; // Fecha de uso (opcional)
 }
 
 message TicketListResponse {
@@ -105,50 +151,53 @@ message TicketListResponse {
   int32 total_count = 2;
 }
 
-// ============ CUSTOMERS ============
+// ============ CUSTOMERS - ACTUALIZADOS ============
 message CustomerRequest {
   string name = 1;          // (requerido)
   string email = 2;         // (requerido)
   string phone = 3;         // (opcional)
+  string user_id = 4;       // UUID del usuario (opcional) - ✅ NUEVA BASE DE DATOS
+  string customer_type = 5; // registered, guest, corporate (default: guest) - ✅ NUEVO
+  string source = 6;        // web, app, etc. (default: web) - ✅ NUEVO
 }
 
 message CustomerLookup {
   oneof lookup {
-    int32 id = 1;           // ID interno
-    string public_id = 2;   // UUID público
-    string email = 3;       // Email del cliente
+    string public_id = 1;   // UUID público del cliente
+    string email = 2;       // Email del cliente
+    int32 id = 3;           // ID interno (para uso interno)
   }
 }
 
 message CustomerResponse {
-  int32 id = 1;
-  string public_id = 2;     // UUID público
-  string name = 3;
-  string email = 4;
-  string phone = 5;
-  google.protobuf.Timestamp created_at = 6;
-  google.protobuf.Timestamp updated_at = 7;
+  string public_id = 1;     // UUID público
+  string name = 2;
+  string email = 3;
+  string phone = 4;
+  string customer_type = 5; // registered, guest, corporate - ✅ NUEVA BASE DE DATOS
+  int32 loyalty_points = 6; // Puntos de fidelidad - ✅ NUEVO
+  bool is_verified = 7;     // Verificación de email - ✅ NUEVO
+  string source = 8;        // Origen del cliente - ✅ NUEVO
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
 }
 
 // ============ USERS ============
 message UserRequest {
   string name = 1;          // (requerido)
   string email = 2;         // (requerido)
-  string password = 3;      // (requerido) - CORREGIDO: Campo agregado
-  string role = 4;          // customer, organizer, admin (default: customer)
+  string password = 3;      // (requerido, min: 6 caracteres)
+  string role = 4;          // customer, organizer, admin, guest (default: customer) - ✅ NUEVO: guest
 }
 
 message UserResponse {
   string user_id = 1;       // UUID público
-  string status = 2;        // active, inactive, pending
+  string status = 2;        // active, inactive
   string name = 3;
   string email = 4;
-  string role = 5;
+  string role = 5;          // customer, organizer, admin, guest - ✅ NUEVO: guest
   google.protobuf.Timestamp created_at = 6;
-}
-
-message UserLookup {
-  string user_id = 1;       // UUID público
+  google.protobuf.Timestamp updated_at = 7; // ✅ NUEVO
 }
 
 // ============ EVENTS ============
@@ -161,12 +210,13 @@ message EventRequest {
   string location = 6;      // (requerido)
   string venue_details = 7; // (opcional)
   string category = 8;      // (opcional)
-  repeated string tags = 9; // Lista de tags - CORREGIDO: repeated string
+  repeated string tags = 9; // Lista de tags
   bool is_active = 10;      // (default: true)
   bool is_published = 11;   // (default: false)
   string image_url = 12;    // (opcional)
   string banner_url = 13;   // (opcional)
   int32 max_attendees = 14; // (opcional)
+  string status = 15;       // draft, published, cancelled, completed, sold_out (default: draft) - ✅ NUEVO
 }
 
 message EventResponse {
@@ -179,16 +229,15 @@ message EventResponse {
   string location = 7;
   string venue_details = 8;
   string category = 9;
-  repeated string tags = 10; // CORREGIDO: repeated string
+  repeated string tags = 10;
   bool is_active = 11;
   bool is_published = 12;
   string image_url = 13;
   string banner_url = 14;
   int32 max_attendees = 15;
-  int32 total_tickets = 16; // Total de tickets disponibles
-  int32 tickets_sold = 17;  // Tickets vendidos
-  google.protobuf.Timestamp created_at = 18;
-  google.protobuf.Timestamp updated_at = 19;
+  string status = 16;       // draft, published, cancelled, completed, sold_out - ✅ NUEVA BASE DE DATOS
+  google.protobuf.Timestamp created_at = 17;
+  google.protobuf.Timestamp updated_at = 18;
 }
 
 message EventLookup {
@@ -201,38 +250,39 @@ message EventListResponse {
 }
 
 // ============ CATEGORIES ============
+message CategoryRequest {
+  string event_id = 1;              // UUID del evento (requerido)
+  string name = 2;                  // (requerido)
+  string description = 3;           // (opcional)
+  double price = 4;                 // (requerido, >= 0)
+  int32 quantity_available = 5;     // (requerido, >= 0)
+  int32 max_tickets_per_order = 6;  // (default: 10, min: 1)
+  google.protobuf.Timestamp sales_start = 7; // (default: now)
+  google.protobuf.Timestamp sales_end = 8;   // (opcional, debe ser > sales_start)
+  repeated string benefits = 9;     // Lista de beneficios
+  bool is_active = 10;              // (default: true)
+}
+
 message CategoryResponse {
-  string public_id = 1;     // UUID público
-  string name = 2;          // (requerido)
-  string description = 3;   // (opcional)
-  double price = 4;         // (requerido, >= 0)
-  int32 quantity_available = 5; // (requerido, >= 0)
-  int32 quantity_sold = 6;  // (>= 0)
-  int32 max_tickets_per_order = 7; // (default: 10)
+  string public_id = 1;             // UUID público
+  string name = 2;                  // Nombre de la categoría
+  string description = 3;           // Descripción
+  double price = 4;                 // Precio
+  int32 quantity_available = 5;     // Cantidad disponible
+  int32 quantity_sold = 6;          // Cantidad vendida
+  int32 max_tickets_per_order = 7;  // Máximo por orden
   google.protobuf.Timestamp sales_start = 8;
   google.protobuf.Timestamp sales_end = 9;
-  bool is_active = 10;
-  repeated string benefits = 11;
+  repeated string benefits = 10;    // Beneficios
+  bool is_active = 11;              // Estado activo
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp updated_at = 13;
 }
 
 message CategoryListResponse {
   repeated CategoryResponse categories = 1;
   string event_name = 2;
   string event_public_id = 3;
-}
-
-// ============ COMMON TYPES ============
-message Address {
-  string street = 1;
-  string city = 2;
-  string state = 3;
-  string country = 4;
-  string postal_code = 5;
-}
-
-message Coordinates {
-  double latitude = 1;
-  double longitude = 2;
 }
 
 // ============ HEALTH CHECK ============
