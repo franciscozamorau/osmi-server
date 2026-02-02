@@ -1,0 +1,145 @@
+package config
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
+)
+
+// DatabaseConfig contiene la configuración de la base de datos
+type DatabaseConfig struct {
+	Host              string        `yaml:"host"`
+	Port              int           `yaml:"port"`
+	User              string        `yaml:"user"`
+	Password          string        `yaml:"password"`
+	Name              string        `yaml:"name"`
+	SSLMode           string        `yaml:"ssl_mode"`
+	MaxOpenConns      int           `yaml:"max_open_conns"`
+	MaxIdleConns      int           `yaml:"max_idle_conns"`
+	ConnMaxLifetime   time.Duration `yaml:"conn_max_lifetime"`
+	ConnMaxIdleTime   time.Duration `yaml:"conn_max_idle_time"`
+	HealthCheckPeriod time.Duration `yaml:"health_check_period"`
+}
+
+// NewDatabaseConfig crea una nueva configuración de base de datos
+func NewDatabaseConfig() *DatabaseConfig {
+	// Cargar variables de entorno
+	_ = godotenv.Load()
+
+	return &DatabaseConfig{
+		Host:              getEnv("DB_HOST", "localhost"),
+		Port:              getEnvAsInt("DB_PORT", 5432),
+		User:              getEnv("DB_USER", "postgres"),
+		Password:          getEnv("DB_PASSWORD", "password"),
+		Name:              getEnv("DB_NAME", "osmi"),
+		SSLMode:           getEnv("DB_SSL_MODE", "disable"),
+		MaxOpenConns:      getEnvAsInt("DB_MAX_OPEN_CONNS", 25),
+		MaxIdleConns:      getEnvAsInt("DB_MAX_IDLE_CONNS", 5),
+		ConnMaxLifetime:   getEnvAsDuration("DB_CONN_MAX_LIFETIME", time.Hour),
+		ConnMaxIdleTime:   getEnvAsDuration("DB_CONN_MAX_IDLE_TIME", 30*time.Minute),
+		HealthCheckPeriod: getEnvAsDuration("DB_HEALTH_CHECK_PERIOD", time.Minute),
+	}
+}
+
+// ConnectionURL retorna la URL de conexión
+func (c *DatabaseConfig) ConnectionURL() string {
+	return fmt.Sprintf("postgresql://%s:%s@%s:%d/%s?sslmode=%s",
+		c.User,
+		c.Password,
+		c.Host,
+		c.Port,
+		c.Name,
+		c.SSLMode,
+	)
+}
+
+// CreatePool crea un pool de conexiones PostgreSQL
+func (c *DatabaseConfig) CreatePool() (*pgxpool.Pool, error) {
+	config, err := pgxpool.ParseConfig(c.ConnectionURL())
+	if err != nil {
+		return nil, fmt.Errorf("error parsing database config: %w", err)
+	}
+
+	config.MaxConns = int32(c.MaxOpenConns)
+	config.MinConns = int32(c.MaxIdleConns)
+	config.MaxConnLifetime = c.ConnMaxLifetime
+	config.MaxConnIdleTime = c.ConnMaxIdleTime
+	config.HealthCheckPeriod = c.HealthCheckPeriod
+
+	// Configurar opciones de conexión
+	config.ConnConfig.RuntimeParams["application_name"] = "osmi-server"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		return nil, fmt.Errorf("error creating connection pool: %w", err)
+	}
+
+	// Verificar conexión
+	if err := pool.Ping(ctx); err != nil {
+		return nil, fmt.Errorf("error pinging database: %w", err)
+	}
+
+	return pool, nil
+}
+
+// MigrationConfig contiene configuración para migraciones
+type MigrationConfig struct {
+	SourceURL       string `yaml:"source_url"`
+	DatabaseURL     string `yaml:"database_url"`
+	MigrationsPath  string `yaml:"migrations_path"`
+	MigrationsTable string `yaml:"migrations_table"`
+}
+
+// NewMigrationConfig crea configuración para migraciones
+func NewMigrationConfig() *MigrationConfig {
+	return &MigrationConfig{
+		SourceURL:       getEnv("DB_SOURCE_URL", ""),
+		DatabaseURL:     getEnv("DATABASE_URL", ""),
+		MigrationsPath:  getEnv("MIGRATIONS_PATH", "./internal/database/migrations"),
+		MigrationsTable: getEnv("MIGRATIONS_TABLE", "schema_migrations"),
+	}
+}
+
+// DatabaseStats representa estadísticas de la base de datos
+type DatabaseStats struct {
+	TotalConns    int32 `json:"total_conns"`
+	IdleConns     int32 `json:"idle_conns"`
+	MaxConns      int32 `json:"max_conns"`
+	AcquiredConns int32 `json:"acquired_conns"`
+}
+
+// GetStats obtiene estadísticas del pool
+func GetStats(pool *pgxpool.Pool) DatabaseStats {
+	stats := pool.Stat()
+	return DatabaseStats{
+		TotalConns:    stats.TotalConns(),
+		IdleConns:     stats.IdleConns(),
+		MaxConns:      stats.MaxConns(),
+		AcquiredConns: stats.AcquiredConns(),
+	}
+}
+
+// ConnectionTest prueba la conexión a la base de datos
+func ConnectionTest(pool *pgxpool.Pool) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Verificar conexión
+	if err := pool.Ping(ctx); err != nil {
+		return fmt.Errorf("database connection failed: %w", err)
+	}
+
+	// Verificar versión de PostgreSQL
+	var version string
+	if err := pool.QueryRow(ctx, "SELECT version()").Scan(&version); err != nil {
+		return fmt.Errorf("failed to get database version: %w", err)
+	}
+
+	return nil
+}

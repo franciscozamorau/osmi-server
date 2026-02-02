@@ -1,0 +1,277 @@
+# Configuración de staging - OSMI Ticketing Platform
+# ===================================================
+
+# Servidor
+server:
+  environment: "staging"
+  debug: false
+  log_level: "info"
+  grpc_port: 50051
+  http_port: 8080
+  health_port: 8081
+  enable_reflection: true
+  enable_pprof: true
+  enable_metrics: true
+  cors:
+    allowed_origins:
+      - "https://staging.osmi.com"
+      - "https://staging-app.osmi.com"
+      - "http://localhost:3000"  # Para desarrollo frontend
+    allowed_methods:
+      - "GET"
+      - "POST"
+      - "PUT"
+      - "DELETE"
+      - "PATCH"
+      - "OPTIONS"
+    allowed_headers:
+      - "Accept"
+      - "Authorization"
+      - "Content-Type"
+      - "X-CSRF-Token"
+      - "X-Request-ID"
+    exposed_headers:
+      - "Link"
+      - "X-Total-Count"
+      - "X-Page"
+      - "X-Page-Size"
+    allow_credentials: true
+    max_age: 300
+
+# Base de datos PostgreSQL
+database:
+  host: "${STAGING_DB_HOST}"
+  port: ${STAGING_DB_PORT}
+  user: "${STAGING_DB_USER}"
+  password: "${STAGING_DB_PASSWORD}"
+  dbname: "${STAGING_DB_NAME}"
+  sslmode: "require"
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime: "1h"
+  conn_max_idle_time: "30m"
+  pool_timeout: "30s"
+  query_timeout: "15s"
+  migration:
+    path: "./internal/database/migrations"
+    table: "schema_migrations"
+    version: 1
+    auto_migrate: true
+    validate_checksums: true
+
+# Redis
+redis:
+  host: "${STAGING_REDIS_HOST}"
+  port: ${STAGING_REDIS_PORT}
+  password: "${STAGING_REDIS_PASSWORD}"
+  db: 0
+  pool_size: 20
+  min_idle_conns: 5
+  max_retries: 3
+  dial_timeout: "5s"
+  read_timeout: "3s"
+  write_timeout: "3s"
+  cache_ttl: "5m"
+  session_ttl: "24h"
+  rate_limit_ttl: "1m"
+
+# JWT Authentication
+jwt:
+  secret_key: "${STAGING_JWT_SECRET_KEY}"
+  access_token_expiry: "60m"
+  refresh_token_expiry: "720h"  # 30 días en staging
+  issuer: "osmi-staging"
+  audience: "osmi-client"
+  algorithm: "HS256"
+
+# Email (SendGrid en staging con sandbox)
+email:
+  enabled: true
+  provider: "sendgrid"
+  from_address: "staging@osmi.com"
+  from_name: "OSMI Staging"
+  sendgrid:
+    api_key: "${STAGING_SENDGRID_API_KEY}"
+    template_ids:
+      welcome: "${STAGING_TEMPLATE_WELCOME}"
+      ticket_purchase: "${STAGING_TEMPLATE_TICKET_PURCHASE}"
+      password_reset: "${STAGING_TEMPLATE_PASSWORD_RESET}"
+    sandbox_mode: true
+    default_category: "osmi-staging"
+
+# SMS (Twilio en staging con test credentials)
+sms:
+  enabled: true
+  provider: "twilio"
+  twilio:
+    account_sid: "${STAGING_TWILIO_ACCOUNT_SID}"
+    auth_token: "${STAGING_TWILIO_AUTH_TOKEN}"
+    from_number: "+15005550006"  # Twilio test number
+  test_mode: true
+
+# Payment Providers (Sandbox/Test modes)
+payment:
+  default_currency: "MXN"
+  providers:
+    stripe:
+      enabled: true
+      publishable_key: "${STAGING_STRIPE_PUBLISHABLE_KEY}"
+      secret_key: "${STAGING_STRIPE_SECRET_KEY}"
+      webhook_secret: "${STAGING_STRIPE_WEBHOOK_SECRET}"
+      api_version: "2023-10-16"
+      timeout: "30s"
+    paypal:
+      enabled: true
+      client_id: "${STAGING_PAYPAL_CLIENT_ID}"
+      client_secret: "${STAGING_PAYPAL_CLIENT_SECRET}"
+      mode: "sandbox"
+      webhook_id: "${STAGING_PAYPAL_WEBHOOK_ID}"
+    oxxo:
+      enabled: true
+      merchant_id: "${STAGING_OXXO_MERCHANT_ID}"
+      merchant_key: "${STAGING_OXXO_MERCHANT_KEY}"
+      expiration_days: 7  # Más tiempo en staging para pruebas
+
+# Notifications
+notifications:
+  enabled: true
+  default_language: "es"
+  channels:
+    email:
+      enabled: true
+      queue_size: 500
+      workers: 3
+      retry_attempts: 3
+      retry_delay: "2m"
+    sms:
+      enabled: true
+      queue_size: 100
+      workers: 2
+      retry_attempts: 2
+      retry_delay: "1m"
+    push:
+      enabled: true
+      queue_size: 200
+      workers: 2
+      retry_attempts: 3
+      retry_delay: "30s"
+
+# Rate Limiting
+rate_limiting:
+  enabled: true
+  default_limit: 500
+  default_window: "1m"
+  limits:
+    auth_login: 20
+    auth_register: 10
+    ticket_purchase: 50
+    api_public: 200
+    api_authenticated: 1000
+    api_admin: 2000
+
+# Cache
+cache:
+  enabled: true
+  default_ttl: "5m"
+  caches:
+    events:
+      ttl: "10m"
+      size: 5000
+    tickets:
+      ttl: "3m"
+      size: 10000
+    users:
+      ttl: "15m"
+      size: 2000
+    categories:
+      ttl: "1h"
+      size: 200
+
+# Metrics
+metrics:
+  enabled: true
+  port: 9090
+  path: "/metrics"
+  namespace: "osmi"
+  subsystem: "api-staging"
+  interval: "30s"
+  retention: "7d"
+
+# Tracing
+tracing:
+  enabled: true
+  provider: "jaeger"
+  jaeger:
+    endpoint: "${STAGING_JAEGER_ENDPOINT}"
+    service_name: "osmi-api-staging"
+    sampler_type: "probabilistic"
+    sampler_param: 0.5
+
+# Logging
+logging:
+  level: "info"
+  format: "json"
+  output: "stdout"
+  enable_caller: true
+  enable_stacktrace: false
+  development: false
+  sampling:
+    initial: 100
+    thereafter: 100
+
+# Security (Relajado para testing)
+security:
+  bcrypt_cost: 10
+  password_min_length: 8
+  password_require_upper: true
+  password_require_lower: true
+  password_require_number: true
+  password_require_special: false
+  session_timeout: "72h"
+  max_login_attempts: 10
+  lockout_duration: "5m"
+  require_email_verification: false
+  require_phone_verification: false
+  csrf_enabled: false
+
+# File Uploads
+uploads:
+  max_size: "10MB"
+  allowed_types:
+    - "image/jpeg"
+    - "image/png"
+    - "image/gif"
+    - "image/webp"
+    - "application/pdf"
+  storage:
+    provider: "s3"
+    s3:
+      bucket: "${STAGING_S3_BUCKET}"
+      region: "${STAGING_AWS_REGION}"
+      access_key: "${STAGING_AWS_ACCESS_KEY}"
+      secret_key: "${STAGING_AWS_SECRET_KEY}"
+      cdn_url: "${STAGING_CDN_URL}"
+
+# Feature Flags (Más features habilitados para testing)
+features:
+  ticket_transfers: true
+  ticket_refunds: true
+  waitlist: true
+  social_login: true
+  two_factor_auth: true
+  real_time_updates: true
+  analytics_dashboard: true
+  bulk_operations: true
+  webhooks: true
+  api_docs: true
+  maintenance_mode: false
+  beta_features: true
+
+# Testing Features
+testing:
+  enable_test_data: true
+  auto_seed: true
+  mock_payments: true
+  mock_emails: true
+  mock_sms: true
+  allow_dangerous_operations: true  # Para pruebas de borrado, etc.

@@ -7,312 +7,221 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
-	pb "github.com/franciscozamorau/osmi-server/gen"
-	"github.com/franciscozamorau/osmi-server/internal/db"
-	"github.com/franciscozamorau/osmi-server/internal/repository"
-	"github.com/franciscozamorau/osmi-server/internal/service"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/health"
-	"google.golang.org/grpc/health/grpc_health_v1"
-	"google.golang.org/grpc/reflection"
-
+	pb "github.com/franciscozamorau/osmi-protobuf/gen/pb"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
-func init() {
-	// Cargar variables de entorno
-	err := godotenv.Load()
-	if err != nil {
-		log.Println("No .env file found, using system environment variables")
+type Config struct {
+	DBHost     string
+	DBPort     string
+	DBName     string
+	DBUser     string
+	DBPassword string
+	DBSSLMode  string
+	GRPCPort   string
+	HTTPPort   string
+}
+
+func loadConfig() *Config {
+	if err := godotenv.Load(); err != nil {
+		log.Printf("Warning: No .env file found, using environment variables")
+	}
+
+	return &Config{
+		DBHost:     getEnv("DB_HOST", "localhost"),
+		DBPort:     getEnv("DB_PORT", "5432"),
+		DBName:     getEnv("DB_NAME", "osmidb"),
+		DBUser:     getEnv("DB_USER", "osmi"),
+		DBPassword: getEnv("DB_PASSWORD", ""),
+		DBSSLMode:  getEnv("DB_SSLMODE", "disable"),
+		GRPCPort:   getEnv("GRPC_PORT", "50051"),
+		HTTPPort:   getEnv("HTTP_HEALTH_PORT", "8081"),
 	}
 }
 
-// server implementa la interfaz del servicio gRPC
-type server struct {
-	pb.UnimplementedOsmiServiceServer
-	serviceServer *service.Server // ✅ Implementación centralizada del service layer
-}
-
-// NewServer crea una nueva instancia del servidor
-func NewServer() *server {
-	// ✅ VERIFICAR QUE LA CONEXIÓN A BD ESTÉ INICIALIZADA
-	if db.Pool == nil {
-		log.Fatal("Database connection not initialized. Call db.Init() first")
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
 	}
-
-	// Inicializar repositorios con la conexión a la base de datos
-	customerRepo := repository.NewCustomerRepository(db.Pool)
-	ticketRepo := repository.NewTicketRepository(db.Pool)
-	eventRepo := repository.NewEventRepository(db.Pool)
-	userRepo := repository.NewUserRepository(db.Pool)
-	categoryRepo := repository.NewCategoryRepository(db.Pool)
-
-	// ✅ VERIFICAR QUE LOS REPOSITORIOS SE CREARON CORRECTAMENTE
-	if customerRepo == nil || ticketRepo == nil || eventRepo == nil || userRepo == nil || categoryRepo == nil {
-		log.Fatal("Failed to initialize one or more repositories")
-	}
-
-	// Crear el service.Server completo para TODOS los métodos
-	serviceServer := service.NewServer(
-		customerRepo,
-		ticketRepo,
-		eventRepo,
-		userRepo,
-		categoryRepo,
-	)
-
-	// ✅ VERIFICAR QUE EL SERVICE SERVER SE CREÓ CORRECTAMENTE
-	if serviceServer == nil {
-		log.Fatal("Failed to initialize service server")
-	}
-
-	log.Println("✅ All repositories and service layer initialized successfully")
-
-	return &server{
-		serviceServer: serviceServer, // ✅ Única fuente de verdad para la lógica de negocio
-	}
+	return defaultValue
 }
-
-// =============================================================================
-// DELEGACIÓN DE MÉTODOS AL SERVICE LAYER
-// =============================================================================
-
-// CreateCategory implementa el método gRPC para crear categorías
-func (s *server) CreateCategory(ctx context.Context, req *pb.CategoryRequest) (*pb.CategoryResponse, error) {
-	return s.serviceServer.CreateCategory(ctx, req)
-}
-
-// GetEventCategories obtiene categorías de un evento
-func (s *server) GetEventCategories(ctx context.Context, req *pb.EventLookup) (*pb.CategoryListResponse, error) {
-	return s.serviceServer.GetEventCategories(ctx, req)
-}
-
-// CreateTicket implementa el método gRPC para crear tickets
-func (s *server) CreateTicket(ctx context.Context, req *pb.TicketRequest) (*pb.TicketResponse, error) {
-	// ✅ USA LA IMPLEMENTACIÓN CORREGIDA con customer_id obligatorio y user_id opcional
-	return s.serviceServer.CreateTicket(ctx, req)
-}
-
-// CreateCustomer implementa el método gRPC para crear clientes
-func (s *server) CreateCustomer(ctx context.Context, req *pb.CustomerRequest) (*pb.CustomerResponse, error) {
-	return s.serviceServer.CreateCustomer(ctx, req)
-}
-
-// GetCustomer obtiene un cliente
-func (s *server) GetCustomer(ctx context.Context, req *pb.CustomerLookup) (*pb.CustomerResponse, error) {
-	return s.serviceServer.GetCustomer(ctx, req)
-}
-
-// CreateUser crea un nuevo usuario
-func (s *server) CreateUser(ctx context.Context, req *pb.UserRequest) (*pb.UserResponse, error) {
-	return s.serviceServer.CreateUser(ctx, req)
-}
-
-// CreateEvent crea un nuevo evento
-func (s *server) CreateEvent(ctx context.Context, req *pb.EventRequest) (*pb.EventResponse, error) {
-	return s.serviceServer.CreateEvent(ctx, req)
-}
-
-// GetEvent obtiene un evento
-func (s *server) GetEvent(ctx context.Context, req *pb.EventLookup) (*pb.EventResponse, error) {
-	return s.serviceServer.GetEvent(ctx, req)
-}
-
-// ListEvents lista todos los eventos
-func (s *server) ListEvents(ctx context.Context, req *pb.Empty) (*pb.EventListResponse, error) {
-	return s.serviceServer.ListEvents(ctx, req)
-}
-
-// ListTickets lista tickets por usuario o cliente
-func (s *server) ListTickets(ctx context.Context, req *pb.TicketLookup) (*pb.TicketListResponse, error) {
-	// ✅ CORREGIDO: Usa la implementación que diferencia entre user_id y customer_id
-	return s.serviceServer.ListTickets(ctx, req)
-}
-
-// GetTicketDetails obtiene detalles completos de un ticket
-func (s *server) GetTicketDetails(ctx context.Context, req *pb.TicketLookup) (*pb.TicketResponse, error) {
-	return s.serviceServer.GetTicketDetails(ctx, req)
-}
-
-// UpdateTicketStatus actualiza el estado de un ticket
-func (s *server) UpdateTicketStatus(ctx context.Context, req *pb.UpdateTicketStatusRequest) (*pb.TicketResponse, error) {
-	return s.serviceServer.UpdateTicketStatus(ctx, req)
-}
-
-// HealthCheck implementa el health check del servicio
-func (s *server) HealthCheck(ctx context.Context, req *pb.Empty) (*pb.HealthResponse, error) {
-	return s.serviceServer.HealthCheck(ctx, req)
-}
-
-// =============================================================================
-// SERVIDOR DE HEALTH CHECKS HTTP
-// =============================================================================
-
-// startHealthServer inicia el servidor HTTP para health checks
-func startHealthServer(port string) {
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		
-		if err := db.HealthCheck(); err != nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprintf(w, `{"status": "unhealthy", "error": "%s", "timestamp": "%s"}`, 
-				err.Error(), time.Now().UTC().Format(time.RFC3339))
-			return
-		}
-
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, `{"status": "healthy", "timestamp": "%s"}`, 
-			time.Now().UTC().Format(time.RFC3339))
-	})
-
-	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		
-		if db.Pool == nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprintf(w, `{"status": "not ready", "error": "database not connected"}`)
-			return
-		}
-
-		stats := db.GetStats()
-		if stats == nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprintf(w, `{"status": "not ready", "error": "database stats unavailable"}`)
-			return
-		}
-
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, `{
-			"status": "ready", 
-			"timestamp": "%s", 
-			"database": {
-				"total_connections": %d,
-				"idle_connections": %d, 
-				"max_connections": %d
-			}
-		}`, time.Now().UTC().Format(time.RFC3339), 
-			stats.TotalConns(), stats.IdleConns(), stats.MaxConns())
-	})
-
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprintf(w, `{"error": "endpoint not found", "path": "%s"}`, r.URL.Path)
-	})
-
-	server := &http.Server{
-		Addr:         ":" + port,
-		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  30 * time.Second,
-	}
-
-	log.Printf("🩺 Health check server running on port %s", port)
-	
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Printf("❌ Health server failed: %v", err)
-	}
-}
-
-// =============================================================================
-// FUNCIÓN PRINCIPAL
-// =============================================================================
 
 func main() {
-	// ✅ INICIALIZACIÓN ROBUSTA DE LA BASE DE DATOS
-	log.Println("🚀 Starting Osmi Ticket System Server...")
-	
-	if err := db.Init(); err != nil {
-		log.Fatalf("❌ Database initialization failed: %v", err)
-	}
-	defer db.Close()
+	log.Println("OSMI Server - Iniciando sistema con configuración segura")
+	log.Println("==========================================================")
 
-	log.Println("✅ Database connection established successfully")
+	config := loadConfig()
 
-	// ✅ INICIAR SERVIDOR DE HEALTH CHECKS EN GOROUTINE SEPARADA
-	healthPort := os.Getenv("HEALTH_PORT")
-	if healthPort == "" {
-		healthPort = "8081"
-	}
-	go startHealthServer(healthPort)
-
-	// ✅ CONFIGURAR EL LISTENER gRPC
-	grpcPort := os.Getenv("GRPC_PORT")
-	if grpcPort == "" {
-		grpcPort = "50051"
+	if config.DBPassword == "" {
+		log.Fatal("Error: DB_PASSWORD no está configurado en variables de entorno")
 	}
 
-	lis, err := net.Listen("tcp", ":"+grpcPort)
+	dbPool, err := connectPostgreSQL(config)
 	if err != nil {
-		log.Fatalf("❌ Failed to listen on port %s: %v", grpcPort, err)
+		log.Fatalf("Error conectando a PostgreSQL: %v", err)
 	}
+	defer dbPool.Close()
 
-	// ✅ CREAR SERVIDOR gRPC CON CONFIGURACIÓN ROBUSTA
-	grpcServer := grpc.NewServer(
-		grpc.MaxRecvMsgSize(16*1024*1024),  // 16MB
-		grpc.MaxSendMsgSize(16*1024*1024),  // 16MB
-		grpc.ConnectionTimeout(30*time.Second),
+	log.Println("PostgreSQL conectado exitosamente")
+	startGRPCServer(dbPool, config)
+}
+
+func connectPostgreSQL(config *Config) (*pgxpool.Pool, error) {
+	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+		config.DBHost,
+		config.DBPort,
+		config.DBUser,
+		config.DBPassword,
+		config.DBName,
+		config.DBSSLMode,
 	)
 
-	// ✅ CREAR INSTANCIA DEL SERVIDOR
-	srv := NewServer()
-
-	// ✅ REGISTRAR SERVICIOS
-	pb.RegisterOsmiServiceServer(grpcServer, srv)
-	
-	// ✅ HABILITAR REFLECTION PARA DESARROLLO (opcional)
-	if os.Getenv("ENABLE_REFLECTION") == "true" {
-		reflection.Register(grpcServer)
-		log.Println("🔍 gRPC reflection enabled")
+	configPool, err := pgxpool.ParseConfig(connStr)
+	if err != nil {
+		return nil, fmt.Errorf("error parse config: %v", err)
 	}
 
-	// ✅ REGISTRAR SERVICIO DE HEALTH CHECK gRPC
-	healthServer := health.NewServer()
-	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
-	healthServer.SetServingStatus("osmi.OsmiService", grpc_health_v1.HealthCheckResponse_SERVING)
+	configPool.MaxConns = 25
+	configPool.MinConns = 5
+	configPool.MaxConnLifetime = time.Hour
+	configPool.MaxConnIdleTime = 30 * time.Minute
 
-	log.Printf("📡 Osmi gRPC server running on port %s", grpcPort)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	// ✅ CONFIGURAR GRACEFUL SHUTDOWN
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+	pool, err := pgxpool.NewWithConfig(ctx, configPool)
+	if err != nil {
+		return nil, fmt.Errorf("error create pool: %v", err)
+	}
 
-	shutdownComplete := make(chan bool, 1)
+	if err := pool.Ping(ctx); err != nil {
+		return nil, fmt.Errorf("error ping database: %v", err)
+	}
+
+	return pool, nil
+}
+
+func startGRPCServer(dbPool *pgxpool.Pool, config *Config) {
+	server := grpc.NewServer()
+	pb.RegisterOsmiServiceServer(server, &osmiServer{dbPool: dbPool})
+	reflection.Register(server)
 
 	go func() {
-		<-stop
-		log.Println("🛑 Shutdown signal received")
+		http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
 
-		// ✅ CAMBIAR ESTADO DE HEALTH CHECK A NO SERVING
-		healthServer.SetServingStatus("osmi.OsmiService", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
-		log.Println("📊 Health status set to NOT_SERVING")
+			if err := dbPool.Ping(ctx); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				w.Write([]byte(`{"status":"unhealthy","error":"database"}`))
+				return
+			}
 
-		// ✅ DAR TIEMPO PARA QUE LAS SOLICITUDES EN CURSO SE COMPLETEN
-		log.Println("⏳ Waiting for ongoing requests to complete...")
-		time.Sleep(5 * time.Second)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"status":"healthy","service":"osmi-server"}`))
+		})
 
-		// ✅ DETENER SERVIDOR gRPC GRACEFULLY
-		log.Println("🛑 Shutting down gRPC server gracefully...")
-		grpcServer.GracefulStop()
-		
-		log.Println("✅ gRPC server stopped successfully")
-		shutdownComplete <- true
+		log.Printf("Health check en :%s/health", config.HTTPPort)
+		if err := http.ListenAndServe(":"+config.HTTPPort, nil); err != nil {
+			log.Printf("Error en health server: %v", err)
+		}
 	}()
 
-	// ✅ INICIAR SERVIDOR gRPC
-	log.Println("🎯 Server is ready to accept requests")
-	if err := grpcServer.Serve(lis); err != nil {
-		log.Fatalf("❌ Failed to serve gRPC: %v", err)
+	address := ":" + config.GRPCPort
+	lis, err := net.Listen("tcp", address)
+	if err != nil {
+		log.Fatalf("Error escuchando: %v", err)
 	}
 
-	// ✅ ESPERAR A QUE EL SHUTDOWN SE COMPLETE
-	<-shutdownComplete
-	log.Println("🏁 Server shutdown complete")
+	log.Printf("gRPC server en %s", address)
+	log.Println("Para probar:")
+	log.Printf("  curl http://localhost:%s/health", config.HTTPPort)
+	log.Println("  curl http://localhost:8083/health")
+	log.Println("  curl -X POST http://localhost:8083/customers \\")
+	log.Println("    -H 'Content-Type: application/json' \\")
+	log.Println("    -d '{\"name\":\"Test\",\"email\":\"test@test.com\"}'")
+
+	if err := server.Serve(lis); err != nil {
+		log.Fatalf("Error en servidor: %v", err)
+	}
+}
+
+type osmiServer struct {
+	pb.UnimplementedOsmiServiceServer
+	dbPool *pgxpool.Pool
+}
+
+func (s *osmiServer) HealthCheck(ctx context.Context, req *pb.Empty) (*pb.HealthResponse, error) {
+	return &pb.HealthResponse{
+		Status:  "healthy",
+		Service: "osmi-server",
+		Version: "1.0",
+	}, nil
+}
+
+func (s *osmiServer) CreateCustomer(ctx context.Context, req *pb.CustomerRequest) (*pb.CustomerResponse, error) {
+	log.Printf("Creando cliente: %s", req.Email)
+
+	query := `INSERT INTO crm.customers (public_uuid, full_name, email, phone, is_active, created_at, updated_at) 
+	          VALUES (gen_random_uuid(), $1, $2, $3, true, NOW(), NOW()) RETURNING id, public_uuid`
+
+	var id int32
+	var publicID string
+	err := s.dbPool.QueryRow(ctx, query, req.Name, req.Email, req.Phone).Scan(&id, &publicID)
+
+	if err != nil {
+		log.Printf("Error en query: %v", err)
+		return nil, fmt.Errorf("no se pudo crear cliente: %v", err)
+	}
+
+	log.Printf("Cliente creado: ID=%d, PublicID=%s", id, publicID)
+
+	return &pb.CustomerResponse{
+		Id:       id,
+		PublicId: publicID,
+		Name:     req.Name,
+		Email:    req.Email,
+		Phone:    req.Phone,
+	}, nil
+}
+
+func (s *osmiServer) GetCustomer(ctx context.Context, req *pb.CustomerLookup) (*pb.CustomerResponse, error) {
+	return nil, fmt.Errorf("not implemented yet")
+}
+
+func (s *osmiServer) CreateUser(ctx context.Context, req *pb.UserRequest) (*pb.UserResponse, error) {
+	return nil, fmt.Errorf("not implemented yet")
+}
+
+func (s *osmiServer) CreateEvent(ctx context.Context, req *pb.EventRequest) (*pb.EventResponse, error) {
+	return nil, fmt.Errorf("not implemented yet")
+}
+
+func (s *osmiServer) GetEvent(ctx context.Context, req *pb.EventLookup) (*pb.EventResponse, error) {
+	return nil, fmt.Errorf("not implemented yet")
+}
+
+func (s *osmiServer) ListEvents(ctx context.Context, req *pb.Empty) (*pb.EventListResponse, error) {
+	return nil, fmt.Errorf("not implemented yet")
+}
+
+func (s *osmiServer) CreateTicket(ctx context.Context, req *pb.TicketRequest) (*pb.TicketResponse, error) {
+	return nil, fmt.Errorf("not implemented yet")
+}
+
+func (s *osmiServer) ListTickets(ctx context.Context, req *pb.UserLookup) (*pb.TicketListResponse, error) {
+	return nil, fmt.Errorf("not implemented yet")
+}
+
+func (s *osmiServer) CreateCategory(ctx context.Context, req *pb.CategoryRequest) (*pb.CategoryResponse, error) {
+	return nil, fmt.Errorf("not implemented yet")
+}
+
+func (s *osmiServer) GetEventCategories(ctx context.Context, req *pb.EventLookup) (*pb.CategoryListResponse, error) {
+	return nil, fmt.Errorf("not implemented yet")
 }

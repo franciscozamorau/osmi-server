@@ -1,0 +1,277 @@
+# Configuración de desarrollo - OSMI Ticketing Platform
+# =====================================================
+
+# Servidor
+server:
+  environment: "development"
+  debug: true
+  log_level: "debug"
+  grpc_port: 50051
+  http_port: 8080
+  health_port: 8081
+  enable_reflection: true
+  enable_pprof: true
+  enable_metrics: true
+  cors:
+    allowed_origins:
+      - "http://localhost:3000"
+      - "http://localhost:8080"
+      - "http://127.0.0.1:3000"
+    allowed_methods:
+      - "GET"
+      - "POST"
+      - "PUT"
+      - "DELETE"
+      - "PATCH"
+      - "OPTIONS"
+    allowed_headers:
+      - "Accept"
+      - "Authorization"
+      - "Content-Type"
+      - "X-CSRF-Token"
+      - "X-Request-ID"
+    exposed_headers:
+      - "Link"
+      - "X-Total-Count"
+      - "X-Page"
+      - "X-Page-Size"
+    allow_credentials: true
+    max_age: 300
+
+# Base de datos PostgreSQL
+database:
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: "CHANGE_THIS_IN_PRODUCTION"
+  dbname: "osmi_dev"
+  sslmode: "disable"
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime: "1h"
+  conn_max_idle_time: "30m"
+  pool_timeout: "30s"
+  query_timeout: "10s"
+  migration:
+    path: "./internal/database/migrations"
+    table: "schema_migrations"
+    version: 1
+
+# Redis
+redis:
+  host: "localhost"
+  port: 6379
+  password: ""
+  db: 0
+  pool_size: 10
+  min_idle_conns: 2
+  max_retries: 3
+  dial_timeout: "5s"
+  read_timeout: "3s"
+  write_timeout: "3s"
+  cache_ttl: "5m"
+  session_ttl: "24h"
+  rate_limit_ttl: "1m"
+
+# JWT Authentication
+jwt:
+  secret_key: "CHANGE_THIS_IN_PRODUCTION"
+  access_token_expiry: "15m"
+  refresh_token_expiry: "168h"  # 7 días
+  issuer: "osmi-dev"
+  audience: "osmi-client"
+  algorithm: "HS256"
+
+# Email
+email:
+  enabled: false  # En desarrollo usamos logs
+  provider: "console"
+  from_address: "noreply@osmi.dev"
+  from_name: "OSMI Development"
+  smtp:
+    host: "localhost"
+    port: 1025
+    username: ""
+    password: ""
+    use_tls: false
+  sendgrid:
+    api_key: "CHANGE_THIS_IN_PRODUCTION"
+    template_ids:
+      welcome: ""
+      ticket_purchase: ""
+      password_reset: ""
+
+# SMS
+sms:
+  enabled: false
+  provider: "twilio"
+  twilio:
+    account_sid: "CHANGE_THIS_IN_PRODUCTION"
+    auth_token: "CHANGE_THIS_IN_PRODUCTION"
+    from_number: "+15005550006"  # Twilio test number
+  test_mode: true
+
+# Payment Providers
+payment:
+  default_currency: "MXN"
+  providers:
+    stripe:
+      enabled: true
+      publishable_key: "CHANGE_THIS_IN_PRODUCTION"
+      secret_key: "CHANGE_THIS_IN_PRODUCTION"
+      webhook_secret: "CHANGE_THIS_IN_PRODUCTION"
+      api_version: "2023-10-16"
+      timeout: "30s"
+    paypal:
+      enabled: true
+      client_id: "CHANGE_THIS_IN_PRODUCTION"
+      client_secret: "CHANGE_THIS_IN_PRODUCTION"
+      mode: "sandbox"
+      webhook_id: ""
+    oxxo:
+      enabled: true
+      merchant_id: "CHANGE_THIS_IN_PRODUCTION"
+      merchant_key: "CHANGE_THIS_IN_PRODUCTION"
+      expiration_days: 7
+
+# Notifications
+notifications:
+  enabled: true
+  default_language: "es"
+  channels:
+    email:
+      enabled: true
+      queue_size: 100
+      workers: 2
+      retry_attempts: 3
+      retry_delay: "60s"
+    sms:
+      enabled: true
+      queue_size: 50
+      workers: 1
+      retry_attempts: 2
+      retry_delay: "30s"
+    push:
+      enabled: false
+      queue_size: 100
+      workers: 2
+      retry_attempts: 3
+      retry_delay: "10s"
+
+# Rate Limiting
+rate_limiting:
+  enabled: true
+  default_limit: 100
+  default_window: "1m"
+  limits:
+    auth_login: 5
+    auth_register: 3
+    ticket_purchase: 10
+    api_public: 60
+    api_authenticated: 200
+    api_admin: 1000
+
+# Cache
+cache:
+  enabled: true
+  default_ttl: "5m"
+  caches:
+    events:
+      ttl: "10m"
+      size: 1000
+    tickets:
+      ttl: "2m"
+      size: 5000
+    users:
+      ttl: "15m"
+      size: 1000
+    categories:
+      ttl: "1h"
+      size: 100
+
+# Metrics
+metrics:
+  enabled: true
+  port: 9090
+  path: "/metrics"
+  namespace: "osmi"
+  subsystem: "api"
+  interval: "15s"
+  retention: "7d"
+
+# Tracing
+tracing:
+  enabled: false
+  provider: "jaeger"
+  jaeger:
+    endpoint: "http://localhost:14268/api/traces"
+    service_name: "osmi-api"
+    sampler_type: "const"
+    sampler_param: 1
+
+# Logging
+logging:
+  level: "debug"
+  format: "json"
+  output: "stdout"
+  enable_caller: true
+  enable_stacktrace: false
+  development: true
+  sampling:
+    initial: 100
+    thereafter: 100
+
+# Security
+security:
+  bcrypt_cost: 10
+  password_min_length: 8
+  password_require_upper: true
+  password_require_lower: true
+  password_require_number: true
+  password_require_special: false
+  session_timeout: "24h"
+  max_login_attempts: 5
+  lockout_duration: "15m"
+  require_email_verification: false
+  require_phone_verification: false
+  csrf_enabled: false
+
+# File Uploads
+uploads:
+  max_size: "10MB"
+  allowed_types:
+    - "image/jpeg"
+    - "image/png"
+    - "image/gif"
+    - "image/webp"
+    - "application/pdf"
+  storage:
+    provider: "local"
+    local:
+      path: "./uploads"
+      base_url: "http://localhost:8080/uploads"
+    s3:
+      bucket: "CHANGE_THIS_IN_PRODUCTION" 
+      region: "CHANGE_THIS_IN_PRODUCTION" 
+      access_key: "CHANGE_THIS_IN_PRODUCTION"
+      secret_key: "CHANGE_THIS_IN_PRODUCTION"
+
+# Feature Flags
+features:
+  ticket_transfers: true
+  ticket_refunds: true
+  waitlist: true
+  social_login: false
+  two_factor_auth: false
+  real_time_updates: true
+  analytics_dashboard: true
+  bulk_operations: true
+  webhooks: true
+  api_docs: true
+
+# Testing
+testing:
+  mock_external_services: true
+  use_test_database: false
+  seed_test_data: true
+  enable_fixtures: true

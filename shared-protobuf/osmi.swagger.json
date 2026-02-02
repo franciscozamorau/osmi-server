@@ -1,0 +1,1079 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "osmi.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "OsmiService"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "operationId": "OsmiService_HealthCheck",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/osmiHealthResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "OsmiService"
+        ]
+      }
+    },
+    "/v1/categories": {
+      "post": {
+        "summary": "Categories",
+        "operationId": "OsmiService_CreateCategory",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/osmiCategoryResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/osmiCategoryRequest"
+            }
+          }
+        ],
+        "tags": [
+          "OsmiService"
+        ]
+      }
+    },
+    "/v1/customers": {
+      "post": {
+        "summary": "Customers - ACTUALIZADOS",
+        "operationId": "OsmiService_CreateCustomer",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/osmiCustomerResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/osmiCustomerRequest"
+            }
+          }
+        ],
+        "tags": [
+          "OsmiService"
+        ]
+      }
+    },
+    "/v1/customers/{publicId}": {
+      "get": {
+        "operationId": "OsmiService_GetCustomer",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/osmiCustomerResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "publicId",
+            "description": "UUID público del cliente",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "email",
+            "description": "Email del cliente",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "description": "ID interno (para uso interno)",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "OsmiService"
+        ]
+      }
+    },
+    "/v1/events": {
+      "get": {
+        "operationId": "OsmiService_ListEvents",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/osmiEventListResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "OsmiService"
+        ]
+      },
+      "post": {
+        "summary": "Events",
+        "operationId": "OsmiService_CreateEvent",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/osmiEventResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/osmiEventRequest"
+            }
+          }
+        ],
+        "tags": [
+          "OsmiService"
+        ]
+      }
+    },
+    "/v1/events/{publicId}": {
+      "get": {
+        "operationId": "OsmiService_GetEvent",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/osmiEventResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "publicId",
+            "description": "UUID público",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "OsmiService"
+        ]
+      }
+    },
+    "/v1/events/{publicId}/categories": {
+      "get": {
+        "operationId": "OsmiService_GetEventCategories",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/osmiCategoryListResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "publicId",
+            "description": "UUID público",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "OsmiService"
+        ]
+      }
+    },
+    "/v1/tickets": {
+      "get": {
+        "summary": "Lista tickets con arquitectura dual",
+        "operationId": "OsmiService_ListTickets",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/osmiTicketListResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "ticketId",
+            "description": "Para GetTicketDetails",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "userId",
+            "description": "Para ListTickets (usuarios registrados) - ✅ NUEVA ARQUITECTURA",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "customerId",
+            "description": "Para ListTickets (clientes invitados) - ✅ NUEVA ARQUITECTURA",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "code",
+            "description": "Para búsqueda por código",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "OsmiService"
+        ]
+      },
+      "post": {
+        "summary": "Tickets - ACTUALIZADOS",
+        "operationId": "OsmiService_CreateTicket",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/osmiTicketResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/osmiTicketRequest"
+            }
+          }
+        ],
+        "tags": [
+          "OsmiService"
+        ]
+      }
+    },
+    "/v1/tickets/{ticketId}": {
+      "get": {
+        "summary": "Detalles de ticket",
+        "operationId": "OsmiService_GetTicketDetails",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/osmiTicketResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "ticketId",
+            "description": "Para GetTicketDetails",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "userId",
+            "description": "Para ListTickets (usuarios registrados) - ✅ NUEVA ARQUITECTURA",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "customerId",
+            "description": "Para ListTickets (clientes invitados) - ✅ NUEVA ARQUITECTURA",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "code",
+            "description": "Para búsqueda por código",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "OsmiService"
+        ]
+      }
+    },
+    "/v1/tickets/{ticketId}/status": {
+      "put": {
+        "summary": "Actualizar estado de ticket",
+        "operationId": "OsmiService_UpdateTicketStatus",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/osmiTicketResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "ticketId",
+            "description": "UUID del ticket",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OsmiServiceUpdateTicketStatusBody"
+            }
+          }
+        ],
+        "tags": [
+          "OsmiService"
+        ]
+      }
+    },
+    "/v1/users": {
+      "post": {
+        "summary": "Users",
+        "operationId": "OsmiService_CreateUser",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/osmiUserResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/osmiUserRequest"
+            }
+          }
+        ],
+        "tags": [
+          "OsmiService"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "OsmiServiceUpdateTicketStatusBody": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "title": "Nuevo estado (available, reserved, sold, used, cancelled, transferred, refunded)"
+        }
+      }
+    },
+    "osmiCategoryListResponse": {
+      "type": "object",
+      "properties": {
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/osmiCategoryResponse"
+          }
+        },
+        "eventName": {
+          "type": "string"
+        },
+        "eventPublicId": {
+          "type": "string"
+        }
+      }
+    },
+    "osmiCategoryRequest": {
+      "type": "object",
+      "properties": {
+        "eventId": {
+          "type": "string",
+          "title": "UUID del evento (requerido)"
+        },
+        "name": {
+          "type": "string",
+          "title": "(requerido)"
+        },
+        "description": {
+          "type": "string",
+          "title": "(opcional)"
+        },
+        "price": {
+          "type": "number",
+          "format": "double",
+          "title": "(requerido, \u003e= 0)"
+        },
+        "quantityAvailable": {
+          "type": "integer",
+          "format": "int32",
+          "title": "(requerido, \u003e= 0)"
+        },
+        "maxTicketsPerOrder": {
+          "type": "integer",
+          "format": "int32",
+          "title": "(default: 10, min: 1)"
+        },
+        "salesStart": {
+          "type": "string",
+          "format": "date-time",
+          "title": "(default: now)"
+        },
+        "salesEnd": {
+          "type": "string",
+          "format": "date-time",
+          "title": "(opcional, debe ser \u003e sales_start)"
+        },
+        "benefits": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "title": "Lista de beneficios"
+        },
+        "isActive": {
+          "type": "boolean",
+          "title": "(default: true)"
+        }
+      },
+      "title": "============ CATEGORIES ============"
+    },
+    "osmiCategoryResponse": {
+      "type": "object",
+      "properties": {
+        "publicId": {
+          "type": "string",
+          "title": "UUID público"
+        },
+        "name": {
+          "type": "string",
+          "title": "Nombre de la categoría"
+        },
+        "description": {
+          "type": "string",
+          "title": "Descripción"
+        },
+        "price": {
+          "type": "number",
+          "format": "double",
+          "title": "Precio"
+        },
+        "quantityAvailable": {
+          "type": "integer",
+          "format": "int32",
+          "title": "Cantidad disponible"
+        },
+        "quantitySold": {
+          "type": "integer",
+          "format": "int32",
+          "title": "Cantidad vendida"
+        },
+        "maxTicketsPerOrder": {
+          "type": "integer",
+          "format": "int32",
+          "title": "Máximo por orden"
+        },
+        "salesStart": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "salesEnd": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "benefits": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "title": "Beneficios"
+        },
+        "isActive": {
+          "type": "boolean",
+          "title": "Estado activo"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "osmiCustomerRequest": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "(requerido)"
+        },
+        "email": {
+          "type": "string",
+          "title": "(requerido)"
+        },
+        "phone": {
+          "type": "string",
+          "title": "(opcional)"
+        },
+        "userId": {
+          "type": "string",
+          "title": "UUID del usuario (opcional) - ✅ NUEVA BASE DE DATOS"
+        },
+        "customerType": {
+          "type": "string",
+          "title": "registered, guest, corporate (default: guest) - ✅ NUEVO"
+        },
+        "source": {
+          "type": "string",
+          "title": "web, app, etc. (default: web) - ✅ NUEVO"
+        }
+      },
+      "title": "============ CUSTOMERS - ACTUALIZADOS ============"
+    },
+    "osmiCustomerResponse": {
+      "type": "object",
+      "properties": {
+        "publicId": {
+          "type": "string",
+          "title": "UUID público"
+        },
+        "name": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "phone": {
+          "type": "string"
+        },
+        "customerType": {
+          "type": "string",
+          "title": "registered, guest, corporate - ✅ NUEVA BASE DE DATOS"
+        },
+        "loyaltyPoints": {
+          "type": "integer",
+          "format": "int32",
+          "title": "Puntos de fidelidad - ✅ NUEVO"
+        },
+        "isVerified": {
+          "type": "boolean",
+          "title": "Verificación de email - ✅ NUEVO"
+        },
+        "source": {
+          "type": "string",
+          "title": "Origen del cliente - ✅ NUEVO"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "osmiEventListResponse": {
+      "type": "object",
+      "properties": {
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/osmiEventResponse"
+          }
+        },
+        "totalCount": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "osmiEventRequest": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "(requerido)"
+        },
+        "description": {
+          "type": "string",
+          "title": "(opcional)"
+        },
+        "shortDescription": {
+          "type": "string",
+          "title": "(opcional)"
+        },
+        "startDate": {
+          "type": "string",
+          "title": "(requerido) Formato RFC3339"
+        },
+        "endDate": {
+          "type": "string",
+          "title": "(requerido) Formato RFC3339"
+        },
+        "location": {
+          "type": "string",
+          "title": "(requerido)"
+        },
+        "venueDetails": {
+          "type": "string",
+          "title": "(opcional)"
+        },
+        "category": {
+          "type": "string",
+          "title": "(opcional)"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "title": "Lista de tags"
+        },
+        "isActive": {
+          "type": "boolean",
+          "title": "(default: true)"
+        },
+        "isPublished": {
+          "type": "boolean",
+          "title": "(default: false)"
+        },
+        "imageUrl": {
+          "type": "string",
+          "title": "(opcional)"
+        },
+        "bannerUrl": {
+          "type": "string",
+          "title": "(opcional)"
+        },
+        "maxAttendees": {
+          "type": "integer",
+          "format": "int32",
+          "title": "(opcional)"
+        },
+        "status": {
+          "type": "string",
+          "title": "draft, published, cancelled, completed, sold_out (default: draft) - ✅ NUEVO"
+        }
+      },
+      "title": "============ EVENTS ============"
+    },
+    "osmiEventResponse": {
+      "type": "object",
+      "properties": {
+        "publicId": {
+          "type": "string",
+          "title": "UUID público"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "shortDescription": {
+          "type": "string"
+        },
+        "startDate": {
+          "type": "string",
+          "title": "Formato RFC3339"
+        },
+        "endDate": {
+          "type": "string",
+          "title": "Formato RFC3339"
+        },
+        "location": {
+          "type": "string"
+        },
+        "venueDetails": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "isActive": {
+          "type": "boolean"
+        },
+        "isPublished": {
+          "type": "boolean"
+        },
+        "imageUrl": {
+          "type": "string"
+        },
+        "bannerUrl": {
+          "type": "string"
+        },
+        "maxAttendees": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "status": {
+          "type": "string",
+          "title": "draft, published, cancelled, completed, sold_out - ✅ NUEVA BASE DE DATOS"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "osmiHealthResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "title": "healthy, unhealthy"
+        },
+        "service": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "title": "============ HEALTH CHECK ============"
+    },
+    "osmiTicketListResponse": {
+      "type": "object",
+      "properties": {
+        "tickets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/osmiTicketResponse"
+          }
+        },
+        "totalCount": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "osmiTicketRequest": {
+      "type": "object",
+      "properties": {
+        "eventId": {
+          "type": "string",
+          "title": "UUID del evento (requerido)"
+        },
+        "customerId": {
+          "type": "string",
+          "title": "UUID del customer (OBLIGATORIO) - ✅ NUEVA BASE DE DATOS"
+        },
+        "userId": {
+          "type": "string",
+          "title": "UUID del usuario (OPCIONAL) - ✅ NUEVA BASE DE DATOS"
+        },
+        "categoryId": {
+          "type": "string",
+          "title": "UUID de la categoría (requerido)"
+        },
+        "quantity": {
+          "type": "integer",
+          "format": "int32",
+          "title": "Cantidad de tickets (default: 1, max: 10)"
+        }
+      },
+      "title": "============ TICKETS - ACTUALIZADOS ============"
+    },
+    "osmiTicketResponse": {
+      "type": "object",
+      "properties": {
+        "ticketId": {
+          "type": "string",
+          "title": "UUID público del ticket"
+        },
+        "status": {
+          "type": "string",
+          "title": "available, reserved, sold, used, cancelled, transferred, refunded"
+        },
+        "code": {
+          "type": "string",
+          "title": "Código único del ticket"
+        },
+        "qrCodeUrl": {
+          "type": "string",
+          "title": "URL del QR code"
+        },
+        "eventName": {
+          "type": "string",
+          "title": "Nombre del evento"
+        },
+        "eventDate": {
+          "type": "string",
+          "title": "Fecha del evento (Formato RFC3339)"
+        },
+        "eventLocation": {
+          "type": "string",
+          "title": "Ubicación del evento"
+        },
+        "price": {
+          "type": "number",
+          "format": "double",
+          "title": "Precio del ticket"
+        },
+        "categoryName": {
+          "type": "string",
+          "title": "Nombre de la categoría"
+        },
+        "seatNumber": {
+          "type": "string",
+          "title": "Número de asiento (opcional)"
+        },
+        "customerName": {
+          "type": "string",
+          "title": "Nombre del cliente"
+        },
+        "customerEmail": {
+          "type": "string",
+          "title": "Email del cliente"
+        },
+        "customerType": {
+          "type": "string",
+          "title": "Tipo de cliente (registered, guest, corporate) - ✅ NUEVO"
+        },
+        "userName": {
+          "type": "string",
+          "title": "Nombre de usuario (si aplica)"
+        },
+        "userRole": {
+          "type": "string",
+          "title": "Rol del usuario (si aplica) - ✅ NUEVO"
+        },
+        "transactionStatus": {
+          "type": "string",
+          "title": "Estado de la transacción (opcional) - ✅ NUEVO"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "usedAt": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Fecha de uso (opcional)"
+        }
+      }
+    },
+    "osmiUserRequest": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "(requerido)"
+        },
+        "email": {
+          "type": "string",
+          "title": "(requerido)"
+        },
+        "password": {
+          "type": "string",
+          "title": "(requerido, min: 6 caracteres)"
+        },
+        "role": {
+          "type": "string",
+          "title": "customer, organizer, admin, guest (default: customer) - ✅ NUEVO: guest"
+        }
+      },
+      "title": "============ USERS ============"
+    },
+    "osmiUserResponse": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "title": "UUID público"
+        },
+        "status": {
+          "type": "string",
+          "title": "active, inactive"
+        },
+        "name": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string",
+          "title": "customer, organizer, admin, guest - ✅ NUEVO: guest"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "title": "✅ NUEVO"
+        }
+      }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    }
+  }
+}

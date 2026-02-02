@@ -1,0 +1,447 @@
+# Configuración de producción - OSMI Ticketing Platform
+# =====================================================
+
+# Servidor
+server:
+  environment: "production"
+  debug: false
+  log_level: "info"
+  grpc_port: 50051
+  http_port: 8080
+  health_port: 8081
+  enable_reflection: false
+  enable_pprof: false
+  enable_metrics: true
+  cors:
+    allowed_origins:
+      - "https://osmi.com"
+      - "https://app.osmi.com"
+      - "https://admin.osmi.com"
+    allowed_methods:
+      - "GET"
+      - "POST"
+      - "PUT"
+      - "DELETE"
+      - "PATCH"
+      - "OPTIONS"
+    allowed_headers:
+      - "Accept"
+      - "Authorization"
+      - "Content-Type"
+      - "X-CSRF-Token"
+      - "X-Request-ID"
+    exposed_headers:
+      - "Link"
+      - "X-Total-Count"
+      - "X-Page"
+      - "X-Page-Size"
+    allow_credentials: true
+    max_age: 300
+  timeout:
+    read: "15s"
+    write: "15s"
+    idle: "60s"
+    shutdown: "30s"
+  compression:
+    enabled: true
+    level: 5
+    content_types:
+      - "application/json"
+      - "text/html"
+      - "text/plain"
+      - "application/javascript"
+      - "text/css"
+
+# Base de datos PostgreSQL (usar variables de entorno en producción)
+database:
+  host: "${DB_HOST}"
+  port: ${DB_PORT}
+  user: "${DB_USER}"
+  password: "${DB_PASSWORD}"
+  dbname: "${DB_NAME}"
+  sslmode: "require"
+  max_open_conns: 50
+  max_idle_conns: 10
+  conn_max_lifetime: "1h"
+  conn_max_idle_time: "30m"
+  pool_timeout: "30s"
+  query_timeout: "30s"
+  read_replica:
+    enabled: true
+    host: "${DB_READ_HOST}"
+    port: ${DB_READ_PORT}
+    user: "${DB_READ_USER}"
+    password: "${DB_READ_PASSWORD}"
+    dbname: "${DB_READ_NAME}"
+  migration:
+    path: "./internal/database/migrations"
+    table: "schema_migrations"
+    version: 1
+    auto_migrate: false
+    validate_checksums: true
+
+# Redis Cluster
+redis:
+  addresses:
+    - "${REDIS_HOST}:${REDIS_PORT}"
+  password: "${REDIS_PASSWORD}"
+  db: 0
+  pool_size: 100
+  min_idle_conns: 20
+  max_retries: 3
+  dial_timeout: "5s"
+  read_timeout: "3s"
+  write_timeout: "3s"
+  pool_timeout: "4s"
+  cache_ttl: "10m"
+  session_ttl: "24h"
+  rate_limit_ttl: "1m"
+  cluster:
+    enabled: true
+    read_only: false
+    route_by_latency: false
+    route_randomly: false
+
+# JWT Authentication
+jwt:
+  secret_key: "${JWT_SECRET_KEY}"
+  access_token_expiry: "15m"
+  refresh_token_expiry: "168h"  # 7 días
+  issuer: "osmi.com"
+  audience: "osmi-client"
+  algorithm: "HS256"
+  rotation:
+    enabled: true
+    grace_period: "5m"
+    old_key_ttl: "1h"
+
+# Email (SendGrid en producción)
+email:
+  enabled: true
+  provider: "sendgrid"
+  from_address: "tickets@osmi.com"
+  from_name: "OSMI Ticketing"
+  reply_to: "support@osmi.com"
+  sendgrid:
+    api_key: "${SENDGRID_API_KEY}"
+    template_ids:
+      welcome: "${TEMPLATE_WELCOME}"
+      ticket_purchase: "${TEMPLATE_TICKET_PURCHASE}"
+      ticket_transfer: "${TEMPLATE_TICKET_TRANSFER}"
+      password_reset: "${TEMPLATE_PASSWORD_RESET}"
+      event_reminder: "${TEMPLATE_EVENT_REMINDER}"
+      receipt: "${TEMPLATE_RECEIPT}"
+    default_category: "osmi-transactional"
+    track_clicks: true
+    track_opens: true
+  rate_limit:
+    max_per_hour: 1000
+    max_per_day: 10000
+
+# SMS (Twilio en producción)
+sms:
+  enabled: true
+  provider: "twilio"
+  twilio:
+    account_sid: "${TWILIO_ACCOUNT_SID}"
+    auth_token: "${TWILIO_AUTH_TOKEN}"
+    from_number: "${TWILIO_FROM_NUMBER}"
+    messaging_service_sid: "${TWILIO_MESSAGING_SID}"
+  rate_limit:
+    max_per_hour: 100
+    max_per_day: 1000
+  templates:
+    ticket_confirmation: "Your ticket for {{event_name}} has been confirmed. Ticket ID: {{ticket_code}}"
+    event_reminder: "Reminder: {{event_name}} starts at {{event_time}}"
+    otp: "Your OTP code is: {{otp_code}}"
+
+# Payment Providers
+payment:
+  default_currency: "MXN"
+  providers:
+    stripe:
+      enabled: true
+      publishable_key: "${STRIPE_PUBLISHABLE_KEY}"
+      secret_key: "${STRIPE_SECRET_KEY}"
+      webhook_secret: "${STRIPE_WEBHOOK_SECRET}"
+      api_version: "2023-10-16"
+      timeout: "30s"
+      idempotency_key_ttl: "24h"
+      retry_policy:
+        max_attempts: 3
+        initial_delay: "1s"
+        max_delay: "10s"
+    paypal:
+      enabled: true
+      client_id: "${PAYPAL_CLIENT_ID}"
+      client_secret: "${PAYPAL_CLIENT_SECRET}"
+      mode: "live"
+      webhook_id: "${PAYPAL_WEBHOOK_ID}"
+    oxxo:
+      enabled: true
+      merchant_id: "${OXXO_MERCHANT_ID}"
+      merchant_key: "${OXXO_MERCHANT_KEY}"
+      expiration_days: 3
+  fraud_detection:
+    enabled: true
+    provider: "stripe_radar"
+    block_high_risk: true
+    review_medium_risk: true
+    max_amount_no_review: 5000.00
+  reconciliation:
+    enabled: true
+    interval: "1h"
+    retry_failed: true
+    alert_on_mismatch: true
+
+# Notifications
+notifications:
+  enabled: true
+  default_language: "es"
+  channels:
+    email:
+      enabled: true
+      queue_size: 1000
+      workers: 5
+      retry_attempts: 5
+      retry_delay: "5m"
+      max_processing_time: "10m"
+      dlq_enabled: true
+      dlq_retention: "7d"
+    sms:
+      enabled: true
+      queue_size: 500
+      workers: 3
+      retry_attempts: 3
+      retry_delay: "2m"
+      max_processing_time: "5m"
+    push:
+      enabled: true
+      queue_size: 1000
+      workers: 5
+      retry_attempts: 4
+      retry_delay: "30s"
+      max_processing_time: "2m"
+  priority_queues:
+    high:
+      workers: 2
+      max_processing_time: "1m"
+    medium:
+      workers: 3
+      max_processing_time: "5m"
+    low:
+      workers: 1
+      max_processing_time: "30m"
+
+# Rate Limiting
+rate_limiting:
+  enabled: true
+  default_limit: 1000
+  default_window: "1m"
+  limits:
+    auth_login: 10
+    auth_register: 5
+    ticket_purchase: 20
+    api_public: 100
+    api_authenticated: 1000
+    api_admin: 5000
+    email_send: 100
+    sms_send: 50
+  storage: "redis"
+  headers:
+    enabled: true
+    limit_header: "X-RateLimit-Limit"
+    remaining_header: "X-RateLimit-Remaining"
+    reset_header: "X-RateLimit-Reset"
+
+# Cache
+cache:
+  enabled: true
+  default_ttl: "10m"
+  caches:
+    events:
+      ttl: "15m"
+      size: 10000
+      strategy: "lru"
+    tickets:
+      ttl: "5m"
+      size: 50000
+      strategy: "lru"
+    users:
+      ttl: "30m"
+      size: 5000
+      strategy: "lru"
+    categories:
+      ttl: "2h"
+      size: 500
+      strategy: "lru"
+    organizers:
+      ttl: "1h"
+      size: 1000
+      strategy: "lru"
+    venues:
+      ttl: "1h"
+      size: 1000
+      strategy: "lru"
+  invalidation:
+    enabled: true
+    pattern: "osmi:*"
+    broadcast_channel: "cache_invalidation"
+
+# Metrics (Prometheus)
+metrics:
+  enabled: true
+  port: 9090
+  path: "/metrics"
+  namespace: "osmi"
+  subsystem: "api"
+  interval: "30s"
+  retention: "30d"
+  buckets:
+    http_duration: [0.1, 0.5, 1, 2, 5, 10]
+    db_duration: [0.01, 0.05, 0.1, 0.5, 1, 2]
+    cache_duration: [0.001, 0.005, 0.01, 0.05, 0.1]
+  labels:
+    environment: "production"
+    region: "${AWS_REGION}"
+    service: "api"
+
+# Tracing (OpenTelemetry)
+tracing:
+  enabled: true
+  provider: "otel"
+  otel:
+    endpoint: "${OTEL_EXPORTER_OTLP_ENDPOINT}"
+    insecure: false
+    service_name: "osmi-api"
+    service_version: "${APP_VERSION}"
+    deployment_environment: "production"
+    sampler:
+      type: "parentbased_traceidratio"
+      ratio: 0.1
+  jaeger:
+    endpoint: "${JAEGER_ENDPOINT}"
+    service_name: "osmi-api"
+
+# Logging (Structured logs para ELK)
+logging:
+  level: "info"
+  format: "json"
+  output: "stdout"
+  enable_caller: true
+  enable_stacktrace: true
+  development: false
+  sampling:
+    initial: 100
+    thereafter: 100
+  fields:
+    service: "osmi-api"
+    environment: "production"
+    version: "${APP_VERSION}"
+  elasticsearch:
+    enabled: true
+    endpoint: "${ELASTICSEARCH_ENDPOINT}"
+    index_pattern: "osmi-logs-*"
+    username: "${ELASTICSEARCH_USERNAME}"
+    password: "${ELASTICSEARCH_PASSWORD}"
+    flush_interval: "5s"
+    bulk_size: 1000
+
+# Security
+security:
+  bcrypt_cost: 12
+  password_min_length: 12
+  password_require_upper: true
+  password_require_lower: true
+  password_require_number: true
+  password_require_special: true
+  session_timeout: "24h"
+  max_login_attempts: 5
+  lockout_duration: "30m"
+  require_email_verification: true
+  require_phone_verification: false
+  csrf_enabled: true
+  csrf_token_ttl: "12h"
+  headers:
+    x_frame_options: "DENY"
+    x_content_type_options: "nosniff"
+    x_xss_protection: "1; mode=block"
+    strict_transport_security: "max-age=31536000; includeSubDomains"
+    content_security_policy: "default-src 'self'"
+  rate_limiting:
+    login: 10
+    registration: 5
+    password_reset: 3
+    api_key: 1000
+
+# File Uploads (S3 en producción)
+uploads:
+  max_size: "20MB"
+  allowed_types:
+    - "image/jpeg"
+    - "image/png"
+    - "image/gif"
+    - "image/webp"
+    - "application/pdf"
+    - "image/svg+xml"
+  storage:
+    provider: "s3"
+    s3:
+      bucket: "${S3_BUCKET}"
+      region: "${AWS_REGION}"
+      access_key: "${AWS_ACCESS_KEY_ID}"
+      secret_key: "${AWS_SECRET_ACCESS_KEY}"
+      endpoint: ""
+      force_path_style: false
+      cdn_url: "${CDN_URL}"
+      acl: "private"
+      encryption: "AES256"
+    local:
+      path: "/var/uploads"
+      base_url: "/uploads"
+  processing:
+    image_optimization: true
+    max_width: 1920
+    max_height: 1080
+    quality: 85
+    create_thumbnails: true
+    thumbnail_sizes:
+      - "150x150"
+      - "300x300"
+      - "600x600"
+
+# Feature Flags
+features:
+  ticket_transfers: true
+  ticket_refunds: true
+  waitlist: true
+  social_login: true
+  two_factor_auth: true
+  real_time_updates: true
+  analytics_dashboard: true
+  bulk_operations: true
+  webhooks: true
+  api_docs: false
+  maintenance_mode: false
+  beta_features: false
+
+# Monitoring & Alerts
+monitoring:
+  enabled: true
+  health_check_interval: "30s"
+  alerting:
+    enabled: true
+    provider: "pagerduty"
+    pagerduty:
+      integration_key: "${PAGERDUTY_INTEGRATION_KEY}"
+      service_id: "${PAGERDUTY_SERVICE_ID}"
+    slack:
+      webhook_url: "${SLACK_WEBHOOK_URL}"
+      channel: "#alerts"
+  thresholds:
+    cpu_usage: 80
+    memory_usage: 85
+    disk_usage: 90
+    error_rate: 5
+    response_time_p95: 2000
+    queue_size: 1000
