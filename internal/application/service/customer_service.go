@@ -2,8 +2,7 @@ package services
 
 import (
 	"context"
-	"errors"
-	"time"
+	"fmt"
 
 	"github.com/franciscozamorau/osmi-server/internal/api/dto"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
@@ -13,150 +12,127 @@ import (
 
 type CustomerService struct {
 	customerRepo repository.CustomerRepository
-	userRepo     repository.UserRepository
 }
 
-func NewCustomerService(
-	customerRepo repository.CustomerRepository,
-	userRepo repository.UserRepository,
-) *CustomerService {
+func NewCustomerService(customerRepo repository.CustomerRepository) *CustomerService {
 	return &CustomerService{
 		customerRepo: customerRepo,
-		userRepo:     userRepo,
 	}
 }
 
 func (s *CustomerService) CreateCustomer(ctx context.Context, req *dto.CreateCustomerRequest) (*entities.Customer, error) {
-	// Validar que el email no exista
-	existing, _ := s.customerRepo.FindByEmail(ctx, req.Email)
-	if existing != nil {
-		return nil, errors.New("customer with this email already exists")
+	// Validar request
+	if req.FullName == "" {
+		return nil, fmt.Errorf("full name is required")
+	}
+	if req.Email == "" {
+		return nil, fmt.Errorf("email is required")
 	}
 
-	// Verificar si hay userID y validar que exista
-	var userID *int64
-	if req.UserID != "" {
-		user, err := s.userRepo.FindByPublicID(ctx, req.UserID)
-		if err != nil {
-			return nil, errors.New("user not found")
-		}
-		userID = &user.ID
-	}
-
-	// Crear cliente
+	// Crear entidad Customer
 	customer := &entities.Customer{
-		PublicID:        uuid.New().String(),
-		UserID:          userID,
-		FullName:        req.FullName,
-		Email:           req.Email,
-		Phone:           &req.Phone,
-		CompanyName:     &req.CompanyName,
-		TaxID:           &req.TaxID,
-		TaxIDType:       &req.TaxIDType,
-		RequiresInvoice: req.RequiresInvoice,
-		AddressLine1:    &req.AddressLine1,
-		AddressLine2:    &req.AddressLine2,
-		City:            &req.City,
-		State:           &req.State,
-		PostalCode:      &req.PostalCode,
-		Country:         &req.Country,
-		IsActive:        true,
-		CustomerSegment: "new",
-		CreatedAt:       time.Now(),
-		UpdatedAt:       time.Now(),
+		PublicID:                 uuid.New().String(),
+		FullName:                 req.FullName,
+		Email:                    req.Email,
+		Phone:                    req.Phone,
+		CompanyName:              req.CompanyName,
+		AddressLine1:             req.AddressLine1,
+		AddressLine2:             req.AddressLine2,
+		City:                     req.City,
+		State:                    req.State,
+		PostalCode:               req.PostalCode,
+		Country:                  req.Country,
+		TaxID:                    req.TaxID,
+		TaxIDType:                req.TaxIDType,
+		TaxName:                  req.TaxName,
+		RequiresInvoice:          req.RequiresInvoice,
+		CommunicationPreferences: make(map[string]interface{}),
+		TotalSpent:               0,
+		TotalOrders:              0,
+		TotalTickets:             0,
+		AvgOrderValue:            0,
+		IsActive:                 true,
+		IsVIP:                    false,
+		CustomerSegment:          "new",
+		LifetimeValue:            0,
 	}
 
+	// Usar el repositorio real
 	err := s.customerRepo.Create(ctx, customer)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create customer: %w", err)
 	}
 
 	return customer, nil
 }
 
-func (s *CustomerService) GetCustomer(ctx context.Context, customerID string) (*entities.Customer, error) {
-	customer, err := s.customerRepo.FindByPublicID(ctx, customerID)
-	if err != nil {
-		return nil, errors.New("customer not found")
+func (s *CustomerService) GetCustomer(ctx context.Context, publicID string) (*entities.Customer, error) {
+	if publicID == "" {
+		return nil, fmt.Errorf("customer ID is required")
 	}
+
+	customer, err := s.customerRepo.FindByPublicID(ctx, publicID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get customer: %w", err)
+	}
+
 	return customer, nil
 }
 
-func (s *CustomerService) UpdateCustomer(ctx context.Context, customerID string, req *dto.UpdateCustomerRequest) (*entities.Customer, error) {
-	customer, err := s.customerRepo.FindByPublicID(ctx, customerID)
+func (s *CustomerService) UpdateCustomer(ctx context.Context, publicID string, req *dto.UpdateCustomerRequest) (*entities.Customer, error) {
+	// Primero obtener el cliente existente
+	customer, err := s.customerRepo.FindByPublicID(ctx, publicID)
 	if err != nil {
-		return nil, errors.New("customer not found")
+		return nil, fmt.Errorf("customer not found: %w", err)
 	}
 
-	// Actualizar campos
+	// Actualizar campos permitidos
 	if req.FullName != "" {
 		customer.FullName = req.FullName
 	}
-	if req.Phone != "" {
-		customer.Phone = &req.Phone
+	if req.Phone != nil {
+		customer.Phone = req.Phone
 	}
-	if req.CompanyName != "" {
-		customer.CompanyName = &req.CompanyName
+	if req.CompanyName != nil {
+		customer.CompanyName = req.CompanyName
 	}
-	if req.TaxID != "" {
-		customer.TaxID = &req.TaxID
+	if req.AddressLine1 != nil {
+		customer.AddressLine1 = req.AddressLine1
 	}
-	if req.TaxIDType != "" {
-		customer.TaxIDType = &req.TaxIDType
+	if req.City != nil {
+		customer.City = req.City
 	}
-	if req.RequiresInvoice != nil {
-		customer.RequiresInvoice = *req.RequiresInvoice
+	if req.State != nil {
+		customer.State = req.State
 	}
-	if req.AddressLine1 != "" {
-		customer.AddressLine1 = &req.AddressLine1
+	if req.PostalCode != nil {
+		customer.PostalCode = req.PostalCode
 	}
-	if req.AddressLine2 != "" {
-		customer.AddressLine2 = &req.AddressLine2
-	}
-	if req.City != "" {
-		customer.City = &req.City
-	}
-	if req.State != "" {
-		customer.State = &req.State
-	}
-	if req.PostalCode != "" {
-		customer.PostalCode = &req.PostalCode
-	}
-	if req.Country != "" {
-		customer.Country = &req.Country
+	if req.Country != nil {
+		customer.Country = req.Country
 	}
 
-	customer.UpdatedAt = time.Now()
-
+	// Guardar cambios
 	err = s.customerRepo.Update(ctx, customer)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to update customer: %w", err)
 	}
 
 	return customer, nil
 }
 
 func (s *CustomerService) ListCustomers(ctx context.Context, filter dto.CustomerFilter, pagination dto.Pagination) ([]*entities.Customer, int64, error) {
-	customers, err := s.customerRepo.List(ctx, filter, pagination)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	total, err := s.customerRepo.Count(ctx, filter)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return customers, total, nil
+	return s.customerRepo.List(ctx, filter, pagination)
 }
 
-func (s *CustomerService) GetCustomerStats(ctx context.Context, customerID string) (*dto.CustomerStatsResponse, error) {
-	customer, err := s.customerRepo.FindByPublicID(ctx, customerID)
+func (s *CustomerService) GetCustomerStats(ctx context.Context, publicID string) (*dto.CustomerStatsResponse, error) {
+	// Implementación básica - puedes expandirla
+	customer, err := s.customerRepo.FindByPublicID(ctx, publicID)
 	if err != nil {
-		return nil, errors.New("customer not found")
+		return nil, fmt.Errorf("customer not found: %w", err)
 	}
 
-	stats := &dto.CustomerStatsResponse{
+	return &dto.CustomerStatsResponse{
 		TotalCustomers:         1,
 		ActiveCustomers:        1,
 		VIPCustomers:           0,
@@ -164,73 +140,5 @@ func (s *CustomerService) GetCustomerStats(ctx context.Context, customerID strin
 		TotalRevenue:           customer.TotalSpent,
 		AvgLifetimeValue:       customer.LifetimeValue,
 		TopCountries:           []dto.CountryStats{},
-	}
-
-	if customer.IsVIP {
-		stats.VIPCustomers = 1
-	}
-
-	return stats, nil
-}
-
-func (s *CustomerService) UpdateCustomerSegment(ctx context.Context, customerID string, segment string) error {
-	customer, err := s.customerRepo.FindByPublicID(ctx, customerID)
-	if err != nil {
-		return errors.New("customer not found")
-	}
-
-	customer.CustomerSegment = segment
-	customer.UpdatedAt = time.Now()
-
-	return s.customerRepo.Update(ctx, customer)
-}
-
-func (s *CustomerService) ToggleVIPStatus(ctx context.Context, customerID string, vip bool) error {
-	customer, err := s.customerRepo.FindByPublicID(ctx, customerID)
-	if err != nil {
-		return errors.New("customer not found")
-	}
-
-	customer.IsVIP = vip
-	now := time.Now()
-	if vip {
-		customer.VIPSince = &now
-	} else {
-		customer.VIPSince = nil
-	}
-	customer.UpdatedAt = now
-
-	return s.customerRepo.Update(ctx, customer)
-}
-
-func (s *CustomerService) UpdateLoyaltyPoints(ctx context.Context, customerID string, points int32) error {
-	customer, err := s.customerRepo.FindByPublicID(ctx, customerID)
-	if err != nil {
-		return errors.New("customer not found")
-	}
-
-	return s.customerRepo.UpdateLoyaltyPoints(ctx, customer.ID, points)
-}
-
-func (s *CustomerService) MergeCustomers(ctx context.Context, primaryCustomerID, secondaryCustomerID string) error {
-	primary, err := s.customerRepo.FindByPublicID(ctx, primaryCustomerID)
-	if err != nil {
-		return errors.New("primary customer not found")
-	}
-
-	secondary, err := s.customerRepo.FindByPublicID(ctx, secondaryCustomerID)
-	if err != nil {
-		return errors.New("secondary customer not found")
-	}
-
-	// TODO: Implementar lógica de merge
-	// 1. Transferir órdenes del secundario al primario
-	// 2. Transferir tickets
-	// 3. Consolidar estadísticas
-	// 4. Marcar secundario como inactivo
-
-	secondary.IsActive = false
-	secondary.UpdatedAt = time.Now()
-
-	return s.customerRepo.Update(ctx, secondary)
+	}, nil
 }

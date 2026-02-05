@@ -6,7 +6,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os"
 	"time"
 
 	pb "github.com/franciscozamorau/osmi-protobuf/gen/pb"
@@ -16,85 +15,39 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
-type Config struct {
-	DBHost     string
-	DBPort     string
-	DBName     string
-	DBUser     string
-	DBPassword string
-	DBSSLMode  string
-	GRPCPort   string
-	HTTPPort   string
-}
-
-func loadConfig() *Config {
-	if err := godotenv.Load(); err != nil {
-		log.Printf("Warning: No .env file found, using environment variables")
-	}
-
-	return &Config{
-		DBHost:     getEnv("DB_HOST", "localhost"),
-		DBPort:     getEnv("DB_PORT", "5432"),
-		DBName:     getEnv("DB_NAME", "osmidb"),
-		DBUser:     getEnv("DB_USER", "osmi"),
-		DBPassword: getEnv("DB_PASSWORD", ""),
-		DBSSLMode:  getEnv("DB_SSLMODE", "disable"),
-		GRPCPort:   getEnv("GRPC_PORT", "50051"),
-		HTTPPort:   getEnv("HTTP_HEALTH_PORT", "8081"),
-	}
-}
-
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
 func main() {
-	log.Println("OSMI Server - Iniciando sistema con configuración segura")
-	log.Println("==========================================================")
+	log.Println("🚀 OSMI Server - FUNCIONANDO")
+	log.Println("=============================")
 
-	config := loadConfig()
+	_ = godotenv.Load()
 
-	if config.DBPassword == "" {
-		log.Fatal("Error: DB_PASSWORD no está configurado en variables de entorno")
-	}
-
-	dbPool, err := connectPostgreSQL(config)
+	dbPool, err := connectPostgreSQL()
 	if err != nil {
-		log.Fatalf("Error conectando a PostgreSQL: %v", err)
+		log.Fatalf("❌ Error conectando a PostgreSQL: %v", err)
 	}
 	defer dbPool.Close()
 
-	log.Println("PostgreSQL conectado exitosamente")
-	startGRPCServer(dbPool, config)
+	log.Println("✅ PostgreSQL conectado")
+	startGRPCServer(dbPool, ":50051")
 }
 
-func connectPostgreSQL(config *Config) (*pgxpool.Pool, error) {
-	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-		config.DBHost,
-		config.DBPort,
-		config.DBUser,
-		config.DBPassword,
-		config.DBName,
-		config.DBSSLMode,
-	)
+func connectPostgreSQL() (*pgxpool.Pool, error) {
+	connStr := "host=localhost port=5432 user=osmi password=osmi1405 dbname=osmidb sslmode=disable"
 
-	configPool, err := pgxpool.ParseConfig(connStr)
+	config, err := pgxpool.ParseConfig(connStr)
 	if err != nil {
 		return nil, fmt.Errorf("error parse config: %v", err)
 	}
 
-	configPool.MaxConns = 25
-	configPool.MinConns = 5
-	configPool.MaxConnLifetime = time.Hour
-	configPool.MaxConnIdleTime = 30 * time.Minute
+	config.MaxConns = 25
+	config.MinConns = 5
+	config.MaxConnLifetime = time.Hour
+	config.MaxConnIdleTime = 30 * time.Minute
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	pool, err := pgxpool.NewWithConfig(ctx, configPool)
+	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("error create pool: %v", err)
 	}
@@ -106,7 +59,7 @@ func connectPostgreSQL(config *Config) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-func startGRPCServer(dbPool *pgxpool.Pool, config *Config) {
+func startGRPCServer(dbPool *pgxpool.Pool, address string) {
 	server := grpc.NewServer()
 	pb.RegisterOsmiServiceServer(server, &osmiServer{dbPool: dbPool})
 	reflection.Register(server)
@@ -126,25 +79,24 @@ func startGRPCServer(dbPool *pgxpool.Pool, config *Config) {
 			w.Write([]byte(`{"status":"healthy","service":"osmi-server"}`))
 		})
 
-		log.Printf("Health check en :%s/health", config.HTTPPort)
-		if err := http.ListenAndServe(":"+config.HTTPPort, nil); err != nil {
+		log.Println("Health check en :8081/health")
+		if err := http.ListenAndServe(":8081", nil); err != nil {
 			log.Printf("Error en health server: %v", err)
 		}
 	}()
 
-	address := ":" + config.GRPCPort
 	lis, err := net.Listen("tcp", address)
 	if err != nil {
 		log.Fatalf("Error escuchando: %v", err)
 	}
 
 	log.Printf("gRPC server en %s", address)
-	log.Println("Para probar:")
-	log.Printf("  curl http://localhost:%s/health", config.HTTPPort)
-	log.Println("  curl http://localhost:8083/health")
-	log.Println("  curl -X POST http://localhost:8083/customers \\")
-	log.Println("    -H 'Content-Type: application/json' \\")
-	log.Println("    -d '{\"name\":\"Test\",\"email\":\"test@test.com\"}'")
+	log.Println("")
+	log.Println("✅ Sistema funcionando:")
+	log.Println("   curl http://localhost:8081/health")
+	log.Println("   curl -X POST http://localhost:8083/customers \\")
+	log.Println("     -H 'Content-Type: application/json' \\")
+	log.Println("     -d '{\"name\":\"Test\",\"email\":\"test@test.com\"}'")
 
 	if err := server.Serve(lis); err != nil {
 		log.Fatalf("Error en servidor: %v", err)

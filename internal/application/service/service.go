@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	osmi "github.com/franciscozamorau/osmi-server/gen"
-	"github.com/franciscozamorau/osmi-server/internal/models"
-	"github.com/franciscozamorau/osmi-server/internal/repository"
+	osmi "github.com/franciscozamorau/osmi-protobuf/gen/pb"
+	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
+	"github.com/franciscozamorau/osmi-server/internal/domain/repository"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
