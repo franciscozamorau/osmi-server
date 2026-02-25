@@ -77,7 +77,7 @@ func (us *UserScanner) ScanUser(row pgx.Row) (*entities.User, error) {
 		return nil, fmt.Errorf("failed to scan user: %w", err)
 	}
 
-	// Convertir Null types a pointers usando métodos del RowScanner
+	// Convertir Null types a pointers
 	user.Phone = us.ConvertSQLNullable(phone)
 	user.Username = us.ConvertSQLNullable(username)
 	user.FirstName = us.ConvertSQLNullable(firstName)
@@ -93,95 +93,4 @@ func (us *UserScanner) ScanUser(row pgx.Row) (*entities.User, error) {
 	user.LastActiveAt = us.ConvertSQLNullableTime(lastActiveAt)
 
 	return &user, nil
-}
-
-// ScanUserBasic escanea solo campos básicos de usuario
-func (us *UserScanner) ScanUserBasic(row pgx.Row) (*entities.User, error) {
-	var user entities.User
-	var username sql.NullString
-	var firstName sql.NullString
-	var lastName sql.NullString
-
-	err := row.Scan(
-		&user.ID,
-		&user.PublicID,
-		&user.Email,
-		&username,
-		&firstName,
-		&lastName,
-		&user.IsActive,
-		&user.CreatedAt,
-	)
-
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("user not found")
-		}
-		return nil, fmt.Errorf("failed to scan user basic: %w", err)
-	}
-
-	user.Username = us.ConvertSQLNullable(username)
-	user.FirstName = us.ConvertSQLNullable(firstName)
-	user.LastName = us.ConvertSQLNullable(lastName)
-
-	return &user, nil
-}
-
-// ScanUserPublic escanea campos públicos de usuario
-func (us *UserScanner) ScanUserPublic(row pgx.Row) (*entities.UserPublic, error) {
-	var user entities.UserPublic
-	var firstName sql.NullString
-	var lastName sql.NullString
-	var avatarURL sql.NullString
-
-	err := row.Scan(
-		&user.ID,
-		&user.PublicID,
-		&user.Email,
-		&firstName,
-		&lastName,
-		&avatarURL,
-		&user.CreatedAt,
-	)
-
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("user not found")
-		}
-		return nil, fmt.Errorf("failed to scan user public: %w", err)
-	}
-
-	user.FirstName = us.ConvertSQLNullable(firstName)
-	user.LastName = us.ConvertSQLNullable(lastName)
-	user.AvatarURL = us.ConvertSQLNullable(avatarURL)
-
-	return &user, nil
-}
-
-// ScanUserStats escanea estadísticas de usuario
-func (us *UserScanner) ScanUserStats(row pgx.Row) (*entities.UserStats, error) {
-	var stats entities.UserStats
-	var lastLogin sql.NullTime
-	var lastActive sql.NullTime
-
-	err := row.Scan(
-		&stats.UserID,
-		&stats.TotalLogins,
-		&stats.FailedLogins,
-		&stats.TicketsPurchased,
-		&stats.TotalSpent,
-		&lastLogin,
-		&lastActive,
-		&stats.CreatedAt,
-		&stats.UpdatedAt,
-	)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to scan user stats: %w", err)
-	}
-
-	stats.LastLogin = us.ConvertSQLNullableTime(lastLogin)
-	stats.LastActive = us.ConvertSQLNullableTime(lastActive)
-
-	return &stats, nil
 }

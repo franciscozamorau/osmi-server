@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -53,84 +54,73 @@ func (s *EventService) CreateEvent(ctx context.Context, req *dto.CreateEventRequ
 		venueID = &venue.ID
 	}
 
-	// Validar categoría primaria si se proporciona
+	// Validar categoría primaria
 	var primaryCategoryID *int64
 	if req.PrimaryCategoryID != "" {
-		category, err := s.categoryRepo.FindByPublicID(ctx, req.PrimaryCategoryID)
+		category, err := s.categoryRepo.GetByPublicID(ctx, req.PrimaryCategoryID)
 		if err != nil {
 			return nil, errors.New("primary category not found")
 		}
 		primaryCategoryID = &category.ID
 	}
 
-	// Parsear fechas
-	startsAt, err := time.Parse(time.RFC3339, req.StartsAt)
-	if err != nil {
-		return nil, errors.New("invalid start date format")
-	}
-
-	endsAt, err := time.Parse(time.RFC3339, req.EndsAt)
-	if err != nil {
-		return nil, errors.New("invalid end date format")
-	}
-
-	// Validar que endsAt sea después de startsAt
-	if endsAt.Before(startsAt) {
+	// Validar fechas
+	if req.EndsAt.Before(req.StartsAt) {
 		return nil, errors.New("end date must be after start date")
 	}
 
-	// Parsear fechas opcionales
-	var doorsOpenAt, doorsCloseAt *time.Time
-	if req.DoorsOpenAt != "" {
-		openAt, err := time.Parse(time.RFC3339, req.DoorsOpenAt)
-		if err != nil {
-			return nil, errors.New("invalid doors open date format")
+	// Procesar Tags de JSON string a []string
+	var tags *[]string
+	if req.Tags != "" {
+		var tagsSlice []string
+		if err := json.Unmarshal([]byte(req.Tags), &tagsSlice); err != nil {
+			// Si no es JSON válido, tratar como string único
+			tagsSlice = []string{req.Tags}
 		}
-		doorsOpenAt = &openAt
+		tags = &tagsSlice
 	}
 
-	if req.DoorsCloseAt != "" {
-		closeAt, err := time.Parse(time.RFC3339, req.DoorsCloseAt)
-		if err != nil {
-			return nil, errors.New("invalid doors close date format")
-		}
-		doorsCloseAt = &closeAt
-	}
-
-	// Crear evento
+	// Crear evento con conversiones de tipos correctas
 	event := &entities.Event{
-		PublicID:            uuid.New().String(),
-		OrganizerID:         organizer.ID,
-		PrimaryCategoryID:   primaryCategoryID,
-		VenueID:             venueID,
-		Name:                req.Name,
-		Slug:                req.Slug,
-		ShortDescription:    &req.ShortDescription,
-		Description:         &req.Description,
-		EventType:           req.EventType,
-		CoverImageURL:       &req.CoverImageURL,
-		BannerImageURL:      &req.BannerImageURL,
-		Timezone:            req.Timezone,
-		StartsAt:            startsAt,
-		EndsAt:              endsAt,
-		DoorsOpenAt:         doorsOpenAt,
-		DoorsCloseAt:        doorsCloseAt,
-		VenueName:           &req.VenueName,
-		AddressFull:         &req.AddressFull,
-		City:                &req.City,
-		State:               &req.State,
-		Country:             &req.Country,
-		Status:              string(enums.EventStatusDraft),
-		Visibility:          req.Visibility,
-		IsFeatured:          req.IsFeatured,
-		IsFree:              req.IsFree,
-		MaxAttendees:        &req.MaxAttendees,
-		MinAttendees:        req.MinAttendees,
-		Tags:                req.Tags,
-		AgeRestriction:      &req.AgeRestriction,
-		RequiresApproval:    req.RequiresApproval,
-		AllowReservations:   req.AllowReservations,
-		ReservationDuration: req.ReservationDuration,
+		PublicID:          uuid.New().String(),
+		OrganizerID:       organizer.ID,
+		PrimaryCategoryID: primaryCategoryID,
+		VenueID:           venueID,
+		Name:              req.Name,
+		Slug:              req.Slug,
+		ShortDescription:  &req.ShortDescription,
+		Description:       &req.Description,
+		EventType:         req.EventType,
+		CoverImageURL:     &req.CoverImageURL,
+		BannerImageURL:    &req.BannerImageURL,
+		GalleryImages:     nil,
+		Timezone:          req.Timezone,
+		StartsAt:          req.StartsAt,
+		EndsAt:            req.EndsAt,
+		DoorsOpenAt:       &req.DoorsOpenAt,
+		DoorsCloseAt:      &req.DoorsCloseAt,
+		VenueName:         &req.VenueName,
+		AddressFull:       &req.AddressFull,
+		City:              &req.City,
+		State:             &req.State,
+		Country:           &req.Country,
+		Status:            string(enums.EventStatusDraft),
+		Visibility:        req.Visibility,
+		IsFeatured:        req.IsFeatured,
+		IsFree:            req.IsFree,
+		// CORREGIDO (Línea 112): Convertir int32 a *int32 para la función helper
+		MaxAttendees: convertInt32PtrToIntPtr(&req.MaxAttendees),
+		// CORREGIDO: Convertir int32 a int
+		MinAttendees: int(req.MinAttendees),
+		// CORREGIDO: Usar el slice procesado
+		Tags: tags,
+		// CORREGIDO (Línea 118): Convertir int32 a *int32 para la función helper
+		AgeRestriction:    convertInt32PtrToIntPtr(&req.AgeRestriction),
+		RequiresApproval:  req.RequiresApproval,
+		AllowReservations: req.AllowReservations,
+		// CORREGIDO: Convertir int32 a int
+		ReservationDuration: int(req.ReservationDuration),
+		Settings:            nil,
 		CreatedAt:           time.Now(),
 		UpdatedAt:           time.Now(),
 	}
@@ -143,19 +133,11 @@ func (s *EventService) CreateEvent(ctx context.Context, req *dto.CreateEventRequ
 	// Asociar categorías si se proporcionan
 	if len(req.CategoryIDs) > 0 {
 		for _, categoryID := range req.CategoryIDs {
-			category, err := s.categoryRepo.FindByPublicID(ctx, categoryID)
+			category, err := s.categoryRepo.GetByPublicID(ctx, categoryID)
 			if err != nil {
-				continue // Saltar categorías no encontradas
+				continue
 			}
-
-			eventCategory := &entities.EventCategory{
-				EventID:    event.ID,
-				CategoryID: category.ID,
-				IsPrimary:  primaryCategoryID != nil && *primaryCategoryID == category.ID,
-				CreatedAt:  time.Now(),
-			}
-
-			err = s.categoryRepo.AddEventToCategory(ctx, eventCategory)
+			err = s.eventRepo.AddCategoryToEvent(ctx, event.ID, category.ID, primaryCategoryID != nil && *primaryCategoryID == category.ID)
 			if err != nil {
 				// Log error pero continuar
 			}
@@ -166,70 +148,50 @@ func (s *EventService) CreateEvent(ctx context.Context, req *dto.CreateEventRequ
 }
 
 func (s *EventService) UpdateEvent(ctx context.Context, eventID string, req *dto.UpdateEventRequest) (*entities.Event, error) {
-	event, err := s.eventRepo.FindByPublicID(ctx, eventID)
+	event, err := s.eventRepo.GetByPublicID(ctx, eventID)
 	if err != nil {
 		return nil, errors.New("event not found")
 	}
 
-	// Validar que se pueda modificar
 	if event.Status == string(enums.EventStatusCompleted) || event.Status == string(enums.EventStatusCancelled) {
 		return nil, errors.New("cannot modify completed or cancelled event")
 	}
 
-	// Actualizar campos
-	if req.Name != "" {
-		event.Name = req.Name
+	if req.Name != nil {
+		event.Name = *req.Name
 	}
-	if req.ShortDescription != "" {
-		event.ShortDescription = &req.ShortDescription
+	if req.ShortDescription != nil {
+		event.ShortDescription = req.ShortDescription
 	}
-	if req.Description != "" {
-		event.Description = &req.Description
+	if req.Description != nil {
+		event.Description = req.Description
 	}
-	if req.EventType != "" {
-		event.EventType = req.EventType
+	if req.Status != nil {
+		event.Status = *req.Status
 	}
-	if req.CoverImageURL != "" {
-		event.CoverImageURL = &req.CoverImageURL
-	}
-	if req.BannerImageURL != "" {
-		event.BannerImageURL = &req.BannerImageURL
-	}
-	if req.Timezone != "" {
-		event.Timezone = req.Timezone
-	}
-	if req.StartsAt != "" {
-		startsAt, err := time.Parse(time.RFC3339, req.StartsAt)
-		if err != nil {
-			return nil, errors.New("invalid start date format")
-		}
-		event.StartsAt = startsAt
-	}
-	if req.EndsAt != "" {
-		endsAt, err := time.Parse(time.RFC3339, req.EndsAt)
-		if err != nil {
-			return nil, errors.New("invalid end date format")
-		}
-		event.EndsAt = endsAt
-	}
-	if req.Status != "" {
-		event.Status = req.Status
-	}
-	if req.Visibility != "" {
-		event.Visibility = req.Visibility
+	if req.Visibility != nil {
+		event.Visibility = *req.Visibility
 	}
 	if req.IsFeatured != nil {
 		event.IsFeatured = *req.IsFeatured
 	}
+	// CORREGIDO: Convertir *int32 a *int
 	if req.MaxAttendees != nil {
-		event.MaxAttendees = req.MaxAttendees
+		val := int(*req.MaxAttendees)
+		event.MaxAttendees = &val
 	}
+	// CORREGIDO: Convertir *int32 a *int
 	if req.AgeRestriction != nil {
-		event.AgeRestriction = req.AgeRestriction
+		val := int(*req.AgeRestriction)
+		event.AgeRestriction = &val
 	}
-	if req.Tags != nil {
-		event.Tags = req.Tags
+	if req.StartsAt != nil {
+		event.StartsAt = *req.StartsAt
 	}
+	if req.EndsAt != nil {
+		event.EndsAt = *req.EndsAt
+	}
+	// CORREGIDO (Línea 195-199): Eliminado bloque de código que usaba req.Tags (no existe)
 
 	event.UpdatedAt = time.Now()
 
@@ -242,23 +204,20 @@ func (s *EventService) UpdateEvent(ctx context.Context, eventID string, req *dto
 }
 
 func (s *EventService) PublishEvent(ctx context.Context, eventID string, publishAt *time.Time) (*entities.Event, error) {
-	event, err := s.eventRepo.FindByPublicID(ctx, eventID)
+	event, err := s.eventRepo.GetByPublicID(ctx, eventID)
 	if err != nil {
 		return nil, errors.New("event not found")
 	}
 
-	// Validar que el evento esté en estado draft o scheduled
 	if event.Status != string(enums.EventStatusDraft) && event.Status != string(enums.EventStatusScheduled) {
 		return nil, errors.New("event is not in draft or scheduled state")
 	}
 
-	// Validar que tenga al menos un tipo de ticket
-	ticketTypes, err := s.ticketTypeRepo.FindByEventID(ctx, event.ID)
+	ticketTypes, err := s.ticketTypeRepo.FindByEvent(ctx, event.ID, true)
 	if err != nil || len(ticketTypes) == 0 {
 		return nil, errors.New("event must have at least one ticket type to be published")
 	}
 
-	// Actualizar estado
 	event.Status = string(enums.EventStatusPublished)
 	if publishAt != nil {
 		event.PublishedAt = publishAt
@@ -277,18 +236,16 @@ func (s *EventService) PublishEvent(ctx context.Context, eventID string, publish
 }
 
 func (s *EventService) CancelEvent(ctx context.Context, eventID string, reason string) (*entities.Event, error) {
-	event, err := s.eventRepo.FindByPublicID(ctx, eventID)
+	event, err := s.eventRepo.GetByPublicID(ctx, eventID)
 	if err != nil {
 		return nil, errors.New("event not found")
 	}
 
-	// Validar que se pueda cancelar
 	if event.Status == string(enums.EventStatusCompleted) || event.Status == string(enums.EventStatusCancelled) {
 		return nil, errors.New("event is already completed or cancelled")
 	}
 
-	// Verificar si hay tickets vendidos
-	ticketTypes, err := s.ticketTypeRepo.FindByEventID(ctx, event.ID)
+	ticketTypes, err := s.ticketTypeRepo.FindByEvent(ctx, event.ID, true)
 	if err == nil {
 		for _, tt := range ticketTypes {
 			if tt.SoldQuantity > 0 {
@@ -297,7 +254,6 @@ func (s *EventService) CancelEvent(ctx context.Context, eventID string, reason s
 		}
 	}
 
-	// Cancelar evento
 	event.Status = string(enums.EventStatusCancelled)
 	event.UpdatedAt = time.Now()
 
@@ -310,24 +266,68 @@ func (s *EventService) CancelEvent(ctx context.Context, eventID string, reason s
 }
 
 func (s *EventService) GetEvent(ctx context.Context, eventID string) (*entities.Event, error) {
-	event, err := s.eventRepo.FindByPublicID(ctx, eventID)
+	event, err := s.eventRepo.GetByPublicID(ctx, eventID)
 	if err != nil {
 		return nil, errors.New("event not found")
 	}
 
-	// Incrementar contador de vistas
-	go s.eventRepo.IncrementViewCount(context.Background(), event.ID)
+	event.ViewCount++
+	event.UpdatedAt = time.Now()
+	_ = s.eventRepo.Update(ctx, event) // Ignoramos error, no crítico
 
 	return event, nil
 }
 
 func (s *EventService) ListEvents(ctx context.Context, filter dto.EventFilter, pagination dto.Pagination) ([]*entities.Event, int64, error) {
-	events, err := s.eventRepo.List(ctx, filter, pagination)
-	if err != nil {
-		return nil, 0, err
+	// Convertir filter a map para el repositorio
+	dbFilter := make(map[string]interface{})
+
+	if filter.Name != "" {
+		dbFilter["name"] = filter.Name
+	}
+	if filter.OrganizerID != nil {
+		dbFilter["organizer_id"] = *filter.OrganizerID
+	}
+	if filter.CategoryID != nil {
+		dbFilter["category_id"] = *filter.CategoryID
+	}
+	if filter.Status != "" {
+		dbFilter["status"] = filter.Status
+	}
+	if filter.DateFrom != "" {
+		dbFilter["date_from"] = filter.DateFrom
+	}
+	if filter.DateTo != "" {
+		dbFilter["date_to"] = filter.DateTo
+	}
+	if filter.City != "" {
+		dbFilter["city"] = filter.City
+	}
+	if filter.Country != "" {
+		dbFilter["country"] = filter.Country
+	}
+	if filter.IsFeatured != nil {
+		dbFilter["is_featured"] = *filter.IsFeatured
+	}
+	if filter.IsFree != nil {
+		dbFilter["is_free"] = *filter.IsFree
+	}
+	if filter.Search != "" {
+		dbFilter["search"] = filter.Search
 	}
 
-	total, err := s.eventRepo.Count(ctx, filter)
+	// Calcular offset
+	limit := pagination.PageSize
+	if limit <= 0 {
+		limit = 20
+	}
+	offset := (pagination.Page - 1) * limit
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Llamar a List con los parámetros correctos
+	events, total, err := s.eventRepo.List(ctx, dbFilter, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -336,13 +336,12 @@ func (s *EventService) ListEvents(ctx context.Context, filter dto.EventFilter, p
 }
 
 func (s *EventService) GetEventStats(ctx context.Context, eventID string) (*dto.EventStatsResponse, error) {
-	event, err := s.eventRepo.FindByPublicID(ctx, eventID)
+	event, err := s.eventRepo.GetByPublicID(ctx, eventID)
 	if err != nil {
 		return nil, errors.New("event not found")
 	}
 
-	// Obtener tipos de ticket para calcular estadísticas
-	ticketTypes, err := s.ticketTypeRepo.FindByEventID(ctx, event.ID)
+	ticketTypes, err := s.ticketTypeRepo.FindByEvent(ctx, event.ID, true)
 	if err != nil {
 		return nil, err
 	}
@@ -360,15 +359,21 @@ func (s *EventService) GetEventStats(ctx context.Context, eventID string) (*dto.
 	}
 
 	stats := &dto.EventStatsResponse{
-		TicketsSold:      int(ticketsSold),
-		TicketsAvailable: int(ticketsAvailable),
+		TicketsSold:      int64(ticketsSold),
+		TicketsAvailable: int64(ticketsAvailable),
 		TotalRevenue:     totalRevenue,
 		AvgTicketPrice:   avgTicketPrice,
-		CheckInRate:      0.0, // TODO: Calcular del registro de check-ins
-		ConversionRate:   0.0, // TODO: Calcular de analytics
-		ViewsToday:       event.ViewCount,
-		SalesVelocity:    0.0, // TODO: Calcular de analytics
+		CheckInRate:      0.0,
 	}
 
 	return stats, nil
+}
+
+// Función helper para convertir *int32 a *int
+func convertInt32PtrToIntPtr(val *int32) *int {
+	if val == nil {
+		return nil
+	}
+	result := int(*val)
+	return &result
 }

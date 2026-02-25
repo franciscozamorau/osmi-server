@@ -1,4 +1,4 @@
-package dto
+package request
 
 type CountryConfigRequest struct {
 	CountryCode             string                 `json:"country_code" validate:"required,country_code"`

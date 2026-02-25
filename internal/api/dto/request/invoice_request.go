@@ -1,4 +1,4 @@
-package dto
+package request
 
 type CreateInvoiceRequest struct {
 	OrderID             string                 `json:"order_id" validate:"required,uuid4"`

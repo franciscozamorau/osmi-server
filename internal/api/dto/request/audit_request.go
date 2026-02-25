@@ -1,4 +1,4 @@
-package dto
+package request
 
 type AuditRequest struct {
 	TableName     string                 `json:"table_name" validate:"required"`

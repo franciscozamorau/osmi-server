@@ -8,70 +8,87 @@ import (
 	"net/http"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib" // Driver para sqlx
+	"github.com/jmoiron/sqlx"
+
 	pb "github.com/franciscozamorau/osmi-protobuf/gen/pb"
-	"github.com/jackc/pgx/v5/pgxpool"
+	handlersgrpc "github.com/franciscozamorau/osmi-server/internal/application/handlers/grpc"
+	"github.com/franciscozamorau/osmi-server/internal/application/services"
+	"github.com/franciscozamorau/osmi-server/internal/infrastructure/repositories/postgres"
 	"github.com/joho/godotenv"
-	"google.golang.org/grpc"
+	"google.golang.org/grpc" // Paquete estándar de gRPC, sin alias
 	"google.golang.org/grpc/reflection"
 )
 
 func main() {
-	log.Println("🚀 OSMI Server - FUNCIONANDO")
-	log.Println("=============================")
+	log.Println("🚀 OSMI Server - ARQUITECTURA REAL")
+	log.Println("===================================")
 
 	_ = godotenv.Load()
 
-	dbPool, err := connectPostgreSQL()
+	// 1. Conectar PostgreSQL con sqlx
+	db, err := connectPostgreSQL()
 	if err != nil {
-		log.Fatalf("❌ Error conectando a PostgreSQL: %v", err)
+		log.Fatalf("❌ PostgreSQL: %v", err)
 	}
-	defer dbPool.Close()
-
+	defer db.Close()
 	log.Println("✅ PostgreSQL conectado")
-	startGRPCServer(dbPool, ":50051")
+
+	// 2. Crear repositorios
+	customerRepo := postgres.NewCustomerRepository(db)
+	log.Println("✅ Customer Repository creado")
+
+	// 3. Crear servicios
+	customerService := services.NewCustomerService(customerRepo)
+	log.Println("✅ Customer Service creado")
+
+	// 4. Crear handlers (usando el alias handlersgrpc)
+	customerHandler := handlersgrpc.NewCustomerHandler(customerService)
+	log.Println("✅ Customer Handler creado")
+
+	// 5. Iniciar servidor
+	startServer(customerHandler, db, ":50051")
 }
 
-func connectPostgreSQL() (*pgxpool.Pool, error) {
+func connectPostgreSQL() (*sqlx.DB, error) {
 	connStr := "host=localhost port=5432 user=osmi password=osmi1405 dbname=osmidb sslmode=disable"
 
-	config, err := pgxpool.ParseConfig(connStr)
+	db, err := sqlx.Connect("pgx", connStr)
 	if err != nil {
-		return nil, fmt.Errorf("error parse config: %v", err)
+		return nil, fmt.Errorf("connect: %v", err)
 	}
 
-	config.MaxConns = 25
-	config.MinConns = 5
-	config.MaxConnLifetime = time.Hour
-	config.MaxConnIdleTime = 30 * time.Minute
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(30 * time.Minute)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	pool, err := pgxpool.NewWithConfig(ctx, config)
-	if err != nil {
-		return nil, fmt.Errorf("error create pool: %v", err)
+	if err := db.PingContext(ctx); err != nil {
+		return nil, fmt.Errorf("ping: %v", err)
 	}
 
-	if err := pool.Ping(ctx); err != nil {
-		return nil, fmt.Errorf("error ping database: %v", err)
-	}
-
-	return pool, nil
+	return db, nil
 }
 
-func startGRPCServer(dbPool *pgxpool.Pool, address string) {
+func startServer(customerHandler *handlersgrpc.CustomerHandler, db *sqlx.DB, address string) {
+	// Crear servidor gRPC (usando el paquete estándar)
 	server := grpc.NewServer()
-	pb.RegisterOsmiServiceServer(server, &osmiServer{dbPool: dbPool})
+
+	// Registrar handlers
+	pb.RegisterOsmiServiceServer(server, customerHandler)
 	reflection.Register(server)
 
+	// Health check HTTP
 	go func() {
 		http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 
-			if err := dbPool.Ping(ctx); err != nil {
+			if err := db.PingContext(ctx); err != nil {
 				w.WriteHeader(http.StatusServiceUnavailable)
-				w.Write([]byte(`{"status":"unhealthy","error":"database"}`))
+				w.Write([]byte(`{"status":"unhealthy"}`))
 				return
 			}
 
@@ -80,11 +97,10 @@ func startGRPCServer(dbPool *pgxpool.Pool, address string) {
 		})
 
 		log.Println("Health check en :8081/health")
-		if err := http.ListenAndServe(":8081", nil); err != nil {
-			log.Printf("Error en health server: %v", err)
-		}
+		http.ListenAndServe(":8081", nil)
 	}()
 
+	// Iniciar gRPC
 	lis, err := net.Listen("tcp", address)
 	if err != nil {
 		log.Fatalf("Error escuchando: %v", err)
@@ -92,88 +108,15 @@ func startGRPCServer(dbPool *pgxpool.Pool, address string) {
 
 	log.Printf("gRPC server en %s", address)
 	log.Println("")
-	log.Println("✅ Sistema funcionando:")
-	log.Println("   curl http://localhost:8081/health")
-	log.Println("   curl -X POST http://localhost:8083/customers \\")
-	log.Println("     -H 'Content-Type: application/json' \\")
-	log.Println("     -d '{\"name\":\"Test\",\"email\":\"test@test.com\"}'")
+	log.Println("✅ ARQUITECTURA FUNCIONAL:")
+	log.Println("   PostgreSQL → Repository → Service → Handler → gRPC")
+	log.Println("")
+	log.Println("📡 Endpoints:")
+	log.Println("   Health:    curl http://localhost:8081/health")
+	log.Println("   gRPC:      localhost:50051")
+	log.Println("")
 
 	if err := server.Serve(lis); err != nil {
-		log.Fatalf("Error en servidor: %v", err)
+		log.Fatalf("Error sirviendo: %v", err)
 	}
-}
-
-type osmiServer struct {
-	pb.UnimplementedOsmiServiceServer
-	dbPool *pgxpool.Pool
-}
-
-func (s *osmiServer) HealthCheck(ctx context.Context, req *pb.Empty) (*pb.HealthResponse, error) {
-	return &pb.HealthResponse{
-		Status:  "healthy",
-		Service: "osmi-server",
-		Version: "1.0",
-	}, nil
-}
-
-func (s *osmiServer) CreateCustomer(ctx context.Context, req *pb.CustomerRequest) (*pb.CustomerResponse, error) {
-	log.Printf("Creando cliente: %s", req.Email)
-
-	query := `INSERT INTO crm.customers (public_uuid, full_name, email, phone, is_active, created_at, updated_at) 
-	          VALUES (gen_random_uuid(), $1, $2, $3, true, NOW(), NOW()) RETURNING id, public_uuid`
-
-	var id int32
-	var publicID string
-	err := s.dbPool.QueryRow(ctx, query, req.Name, req.Email, req.Phone).Scan(&id, &publicID)
-
-	if err != nil {
-		log.Printf("Error en query: %v", err)
-		return nil, fmt.Errorf("no se pudo crear cliente: %v", err)
-	}
-
-	log.Printf("Cliente creado: ID=%d, PublicID=%s", id, publicID)
-
-	return &pb.CustomerResponse{
-		Id:       id,
-		PublicId: publicID,
-		Name:     req.Name,
-		Email:    req.Email,
-		Phone:    req.Phone,
-	}, nil
-}
-
-func (s *osmiServer) GetCustomer(ctx context.Context, req *pb.CustomerLookup) (*pb.CustomerResponse, error) {
-	return nil, fmt.Errorf("not implemented yet")
-}
-
-func (s *osmiServer) CreateUser(ctx context.Context, req *pb.UserRequest) (*pb.UserResponse, error) {
-	return nil, fmt.Errorf("not implemented yet")
-}
-
-func (s *osmiServer) CreateEvent(ctx context.Context, req *pb.EventRequest) (*pb.EventResponse, error) {
-	return nil, fmt.Errorf("not implemented yet")
-}
-
-func (s *osmiServer) GetEvent(ctx context.Context, req *pb.EventLookup) (*pb.EventResponse, error) {
-	return nil, fmt.Errorf("not implemented yet")
-}
-
-func (s *osmiServer) ListEvents(ctx context.Context, req *pb.Empty) (*pb.EventListResponse, error) {
-	return nil, fmt.Errorf("not implemented yet")
-}
-
-func (s *osmiServer) CreateTicket(ctx context.Context, req *pb.TicketRequest) (*pb.TicketResponse, error) {
-	return nil, fmt.Errorf("not implemented yet")
-}
-
-func (s *osmiServer) ListTickets(ctx context.Context, req *pb.UserLookup) (*pb.TicketListResponse, error) {
-	return nil, fmt.Errorf("not implemented yet")
-}
-
-func (s *osmiServer) CreateCategory(ctx context.Context, req *pb.CategoryRequest) (*pb.CategoryResponse, error) {
-	return nil, fmt.Errorf("not implemented yet")
-}
-
-func (s *osmiServer) GetEventCategories(ctx context.Context, req *pb.EventLookup) (*pb.CategoryListResponse, error) {
-	return nil, fmt.Errorf("not implemented yet")
 }

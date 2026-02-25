@@ -13,7 +13,6 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	pb "github.com/franciscozamorau/osmi-protobuf/gen/pb"
-	"github.com/franciscozamorau/osmi-server/internal/application/handlers/grpc"
 	"github.com/franciscozamorau/osmi-server/internal/config"
 )
 

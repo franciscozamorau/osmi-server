@@ -1,4 +1,4 @@
-package dto
+package request
 
 type CreateOrderRequest struct {
 	CustomerID          string                   `json:"customer_id,omitempty" validate:"omitempty,uuid4"`

@@ -1,13 +1,16 @@
-package grpchandlers
+package grpc
 
 import (
 	"context"
-	"time"
+	"strconv"
 
 	osmi "github.com/franciscozamorau/osmi-protobuf/gen/pb"
-	"github.com/franciscozamorau/osmi-server/internal/api/dto"
+	"github.com/franciscozamorau/osmi-server/internal/api/dto/request"
+	"github.com/franciscozamorau/osmi-server/internal/api/helpers"
 	"github.com/franciscozamorau/osmi-server/internal/application/services"
+	"github.com/golang-jwt/jwt/v5"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -15,27 +18,24 @@ import (
 type UserHandler struct {
 	osmi.UnimplementedOsmiServiceServer
 	userService *services.UserService
+	jwtSecret   []byte
 }
 
-func NewUserHandler(userService *services.UserService) *UserHandler {
+func NewUserHandler(userService *services.UserService, jwtSecret string) *UserHandler {
 	return &UserHandler{
 		userService: userService,
+		jwtSecret:   []byte(jwtSecret),
 	}
 }
 
-func (h *UserHandler) CreateUser(ctx context.Context, req *osmi.UserRequest) (*osmi.UserResponse, error) {
+// CreateUser maneja la creación de un nuevo usuario
+func (h *UserHandler) CreateUser(ctx context.Context, req *osmi.CreateUserRequest) (*osmi.UserResponse, error) {
 	// Convertir protobuf a DTO
-	createReq := &dto.CreateUserRequest{
-		Email:             req.Email,
-		Phone:             req.Phone,
-		Username:          req.Username,
-		Password:          req.Password,
-		FirstName:         req.FirstName,
-		LastName:          req.LastName,
-		DateOfBirth:       req.DateOfBirth,
-		PreferredLanguage: req.PreferredLanguage,
-		PreferredCurrency: req.PreferredCurrency,
-		Timezone:          req.Timezone,
+	createReq := &request.CreateUserRequest{
+		Username: req.Name,
+		Email:    req.Email,
+		Password: req.Password,
+		Role:     req.Role,
 	}
 
 	// Llamar al servicio
@@ -44,240 +44,123 @@ func (h *UserHandler) CreateUser(ctx context.Context, req *osmi.UserRequest) (*o
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	// Convertir entidad a protobuf
+	// Convertir entidad a protobuf usando helpers
 	return &osmi.UserResponse{
-		Id:                user.PublicID,
-		Email:             user.Email,
-		Phone:             safeStringPtr(user.Phone),
-		Username:          safeStringPtr(user.Username),
-		FirstName:         safeStringPtr(user.FirstName),
-		LastName:          safeStringPtr(user.LastName),
-		FullName:          safeStringPtr(user.FullName),
-		AvatarUrl:         safeStringPtr(user.AvatarURL),
-		DateOfBirth:       safeTimeString(user.DateOfBirth),
-		EmailVerified:     user.EmailVerified,
-		PhoneVerified:     user.PhoneVerified,
-		PreferredLanguage: user.PreferredLanguage,
-		PreferredCurrency: user.PreferredCurrency,
-		Timezone:          user.Timezone,
-		MfaEnabled:        user.MFAEnabled,
-		LastLoginAt:       safeTimeProto(user.LastLoginAt),
-		IsActive:          user.IsActive,
-		IsStaff:           user.IsStaff,
-		IsSuperuser:       user.IsSuperuser,
-		LastActiveAt:      timestamppb.New(user.LastActiveAt),
-		CreatedAt:         timestamppb.New(user.CreatedAt),
-		UpdatedAt:         timestamppb.New(user.UpdatedAt),
+		UserId:    user.PublicID,
+		Status:    "active",
+		Name:      helpers.SafeStringPtr(user.Username),
+		Email:     user.Email,
+		Role:      user.Role,
+		CreatedAt: timestamppb.New(user.CreatedAt),
 	}, nil
 }
 
+// GetUser obtiene un usuario por su ID
 func (h *UserHandler) GetUser(ctx context.Context, req *osmi.UserLookup) (*osmi.UserResponse, error) {
-	var userID string
+	// Validar que se proporcione un ID
+	if req.UserId == "" {
+		return nil, status.Error(codes.InvalidArgument, "user_id is required")
+	}
 
-	// Manejar diferentes formas de búsqueda
-	switch lookup := req.Lookup.(type) {
-	case *osmi.UserLookup_Id:
-		userID = lookup.Id
-	case *osmi.UserLookup_Email:
-		// TODO: Implementar búsqueda por email
-		return nil, status.Error(codes.Unimplemented, "search by email not implemented")
-	default:
-		return nil, status.Error(codes.InvalidArgument, "no valid lookup provided")
+	// Convertir el ID de string a int64
+	userID, err := strconv.ParseInt(req.UserId, 10, 64)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid user_id format")
 	}
 
 	// Llamar al servicio
-	user, err := h.userService.GetProfile(ctx, parseID(userID))
+	user, err := h.userService.GetProfile(ctx, userID)
 	if err != nil {
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
 
 	// Convertir entidad a protobuf
 	return &osmi.UserResponse{
-		Id:                user.PublicID,
-		Email:             user.Email,
-		Phone:             safeStringPtr(user.Phone),
-		Username:          safeStringPtr(user.Username),
-		FirstName:         safeStringPtr(user.FirstName),
-		LastName:          safeStringPtr(user.LastName),
-		FullName:          safeStringPtr(user.FullName),
-		AvatarUrl:         safeStringPtr(user.AvatarURL),
-		DateOfBirth:       safeTimeString(user.DateOfBirth),
-		EmailVerified:     user.EmailVerified,
-		PhoneVerified:     user.PhoneVerified,
-		PreferredLanguage: user.PreferredLanguage,
-		PreferredCurrency: user.PreferredCurrency,
-		Timezone:          user.Timezone,
-		MfaEnabled:        user.MFAEnabled,
-		LastLoginAt:       safeTimeProto(user.LastLoginAt),
-		IsActive:          user.IsActive,
-		IsStaff:           user.IsStaff,
-		IsSuperuser:       user.IsSuperuser,
-		LastActiveAt:      timestamppb.New(user.LastActiveAt),
-		CreatedAt:         timestamppb.New(user.CreatedAt),
-		UpdatedAt:         timestamppb.New(user.UpdatedAt),
+		UserId:    user.PublicID,
+		Status:    "active",
+		Name:      helpers.SafeStringPtr(user.Username),
+		Email:     user.Email,
+		Role:      user.Role,
+		CreatedAt: timestamppb.New(user.CreatedAt),
 	}, nil
 }
 
+// ============================================================================
+// MÉTODOS NO IMPLEMENTADOS EN EL PROTO ACTUAL
+// ============================================================================
+
+// Los siguientes métodos están comentados porque no existen en el proto actual.
+// Si en el futuro se añaden al proto, se pueden descomentar y adaptar.
+
+/*
 func (h *UserHandler) UpdateUser(ctx context.Context, req *osmi.UpdateUserRequest) (*osmi.UserResponse, error) {
-	// Convertir protobuf a DTO
-	updateReq := &dto.UpdateUserRequest{
-		Phone:             req.Phone,
-		FirstName:         req.FirstName,
-		LastName:          req.LastName,
-		AvatarURL:         req.AvatarUrl,
-		DateOfBirth:       req.DateOfBirth,
-		PreferredLanguage: req.PreferredLanguage,
-		PreferredCurrency: req.PreferredCurrency,
-		Timezone:          req.Timezone,
-	}
-
-	// Obtener userID del contexto (debería estar en los metadatos de autenticación)
-	userID, err := getUserIDFromContext(ctx)
-	if err != nil {
-		return nil, status.Error(codes.Unauthenticated, "authentication required")
-	}
-
-	// Llamar al servicio
-	user, err := h.userService.UpdateProfile(ctx, userID, updateReq)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-
-	// Convertir entidad a protobuf
-	return &osmi.UserResponse{
-		Id:                user.PublicID,
-		Email:             user.Email,
-		Phone:             safeStringPtr(user.Phone),
-		Username:          safeStringPtr(user.Username),
-		FirstName:         safeStringPtr(user.FirstName),
-		LastName:          safeStringPtr(user.LastName),
-		FullName:          safeStringPtr(user.FullName),
-		AvatarUrl:         safeStringPtr(user.AvatarURL),
-		DateOfBirth:       safeTimeString(user.DateOfBirth),
-		EmailVerified:     user.EmailVerified,
-		PhoneVerified:     user.PhoneVerified,
-		PreferredLanguage: user.PreferredLanguage,
-		PreferredCurrency: user.PreferredCurrency,
-		Timezone:          user.Timezone,
-		MfaEnabled:        user.MFAEnabled,
-		LastLoginAt:       safeTimeProto(user.LastLoginAt),
-		IsActive:          user.IsActive,
-		IsStaff:           user.IsStaff,
-		IsSuperuser:       user.IsSuperuser,
-		LastActiveAt:      timestamppb.New(user.LastActiveAt),
-		CreatedAt:         timestamppb.New(user.CreatedAt),
-		UpdatedAt:         timestamppb.New(user.UpdatedAt),
-	}, nil
+	return nil, status.Error(codes.Unimplemented, "UpdateUser not implemented in proto")
 }
 
 func (h *UserHandler) DeleteUser(ctx context.Context, req *osmi.Empty) (*osmi.Empty, error) {
-	// Obtener userID del contexto
-	userID, err := getUserIDFromContext(ctx)
-	if err != nil {
-		return nil, status.Error(codes.Unauthenticated, "authentication required")
-	}
-
-	// Llamar al servicio
-	err = h.userService.DeleteAccount(ctx, userID)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-
-	return &osmi.Empty{}, nil
+	return nil, status.Error(codes.Unimplemented, "DeleteUser not implemented in proto")
 }
 
 func (h *UserHandler) Login(ctx context.Context, req *osmi.LoginRequest) (*osmi.LoginResponse, error) {
-	// Convertir protobuf a DTO
-	loginReq := &dto.LoginRequest{
-		Email:    req.Email,
-		Password: req.Password,
-		DeviceID: req.DeviceId,
-	}
-
-	// Llamar al servicio
-	session, user, err := h.userService.Login(ctx, loginReq)
-	if err != nil {
-		return nil, status.Error(codes.Unauthenticated, err.Error())
-	}
-
-	// TODO: Generar tokens JWT
-	accessToken := "generated_access_token"
-	refreshToken := session.RefreshTokenHash
-
-	return &osmi.LoginResponse{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		User: &osmi.UserResponse{
-			Id:                user.PublicID,
-			Email:             user.Email,
-			Phone:             safeStringPtr(user.Phone),
-			Username:          safeStringPtr(user.Username),
-			FirstName:         safeStringPtr(user.FirstName),
-			LastName:          safeStringPtr(user.LastName),
-			FullName:          safeStringPtr(user.FullName),
-			EmailVerified:     user.EmailVerified,
-			PhoneVerified:     user.PhoneVerified,
-			PreferredLanguage: user.PreferredLanguage,
-			PreferredCurrency: user.PreferredCurrency,
-			Timezone:          user.Timezone,
-			MfaEnabled:        user.MFAEnabled,
-			IsActive:          user.IsActive,
-			LastActiveAt:      timestamppb.New(user.LastActiveAt),
-		},
-		SessionId: session.SessionID,
-		ExpiresAt: timestamppb.New(session.ExpiresAt),
-	}, nil
+	return nil, status.Error(codes.Unimplemented, "Login not implemented in proto")
 }
 
 func (h *UserHandler) Logout(ctx context.Context, req *osmi.Empty) (*osmi.Empty, error) {
-	// Obtener sessionID del contexto
-	sessionID, err := getSessionIDFromContext(ctx)
-	if err != nil {
-		return nil, status.Error(codes.Unauthenticated, "authentication required")
+	return nil, status.Error(codes.Unimplemented, "Logout not implemented in proto")
+}
+*/
+
+// ============================================================================
+// FUNCIONES DE CONTEXTO (IMPLEMENTACIÓN PENDIENTE)
+// ============================================================================
+
+// extractUserIDFromContext extrae el userID del token JWT en el contexto
+func (h *UserHandler) extractUserIDFromContext(ctx context.Context) (int64, error) {
+	// Obtener el token del metadata
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return 0, status.Error(codes.Unauthenticated, "metadata not found")
 	}
 
-	// Llamar al servicio
-	err = h.userService.Logout(ctx, sessionID)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+	authHeaders := md.Get("authorization")
+	if len(authHeaders) == 0 {
+		return 0, status.Error(codes.Unauthenticated, "authorization token not found")
 	}
 
-	return &osmi.Empty{}, nil
-}
-
-// Helper functions
-func safeStringPtr(s *string) string {
-	if s == nil {
-		return ""
+	// Quitar el prefijo "Bearer " si existe
+	tokenString := authHeaders[0]
+	if len(tokenString) > 7 && tokenString[:7] == "Bearer " {
+		tokenString = tokenString[7:]
 	}
-	return *s
-}
 
-func safeTimeString(t *time.Time) string {
-	if t == nil || t.IsZero() {
-		return ""
+	// Parsear y validar el token
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, status.Error(codes.Unauthenticated, "unexpected signing method")
+		}
+		return h.jwtSecret, nil
+	})
+
+	if err != nil || !token.Valid {
+		return 0, status.Error(codes.Unauthenticated, "invalid token")
 	}
-	return t.Format(time.RFC3339)
-}
 
-func safeTimeProto(t *time.Time) *timestamppb.Timestamp {
-	if t == nil || t.IsZero() {
-		return nil
+	// Extraer el userID del token
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return 0, status.Error(codes.Unauthenticated, "invalid token claims")
 	}
-	return timestamppb.New(*t)
+
+	userIDFloat, ok := claims["user_id"].(float64)
+	if !ok {
+		return 0, status.Error(codes.Unauthenticated, "user_id not found in token")
+	}
+
+	return int64(userIDFloat), nil
 }
 
-func parseID(id string) int64 {
-	// TODO: Implementar parsing de ID
-	return 0
-}
-
-func getUserIDFromContext(ctx context.Context) (int64, error) {
-	// TODO: Extraer userID del contexto (de JWT)
-	return 0, nil
-}
-
-func getSessionIDFromContext(ctx context.Context) (string, error) {
-	// TODO: Extraer sessionID del contexto
-	return "", nil
+// extractSessionIDFromContext extrae el sessionID del contexto (implementación pendiente)
+func (h *UserHandler) extractSessionIDFromContext(ctx context.Context) (string, error) {
+	// Por ahora, retornar error
+	return "", status.Error(codes.Unimplemented, "session extraction not implemented")
 }

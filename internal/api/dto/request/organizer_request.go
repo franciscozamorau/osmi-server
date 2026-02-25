@@ -1,4 +1,4 @@
-package dto
+package request
 
 type CreateOrganizerRequest struct {
 	Name         string            `json:"name" validate:"required,min=2,max=255"`

@@ -1,4 +1,4 @@
-package dto
+package request
 
 type CreateEventRequest struct {
 	OrganizerID         string   `json:"organizer_id" validate:"required,uuid4"`

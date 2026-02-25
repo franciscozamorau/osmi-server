@@ -1,4 +1,4 @@
-package dto
+package request
 
 type APICallRequest struct {
 	Provider       string                 `json:"provider" validate:"required"`

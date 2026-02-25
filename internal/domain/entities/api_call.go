@@ -1,38 +1,40 @@
 package entities
 
 import (
-	"encoding/json"
+	"errors"
 	"time"
 )
 
+// ApiCall representa una llamada a API externa
+// Mapea exactamente la tabla integration.api_calls
 type ApiCall struct {
-	ID              int64                  `json:"id" db:"id"`
-	Provider        string                 `json:"provider" db:"provider"`
-	Endpoint        string                 `json:"endpoint" db:"endpoint"`
-	Method          string                 `json:"method" db:"method"`
-	RequestBody     *string                `json:"request_body,omitempty" db:"request_body"`
-	RequestHeaders  map[string]interface{} `json:"request_headers,omitempty" db:"request_headers"`
-	ResponseBody    *string                `json:"response_body,omitempty" db:"response_body"`
-	ResponseHeaders map[string]interface{} `json:"response_headers,omitempty" db:"response_headers"`
-	ResponseStatus  *int                   `json:"response_status,omitempty" db:"response_status"`
-	ResponseTimeMs  *int                   `json:"response_time_ms,omitempty" db:"response_time_ms"`
-	RetryCount      int                    `json:"retry_count" db:"retry_count"`
-	Success         bool                   `json:"success" db:"success"`
-	ErrorMessage    *string                `json:"error_message,omitempty" db:"error_message"`
-	UserID          *int64                 `json:"user_id,omitempty" db:"user_id"`
-	CreatedAt       time.Time              `json:"created_at" db:"created_at"`
+	ID              int64                   `json:"id" db:"id"`
+	Provider        string                  `json:"provider" db:"provider"`
+	Endpoint        string                  `json:"endpoint" db:"endpoint"`
+	Method          string                  `json:"method" db:"method"`
+	RequestBody     *map[string]interface{} `json:"request_body,omitempty" db:"request_body,type:jsonb"`
+	RequestHeaders  *map[string]interface{} `json:"request_headers,omitempty" db:"request_headers,type:jsonb"`
+	ResponseBody    *map[string]interface{} `json:"response_body,omitempty" db:"response_body,type:jsonb"`
+	ResponseHeaders *map[string]interface{} `json:"response_headers,omitempty" db:"response_headers,type:jsonb"`
+	ResponseStatus  *int                    `json:"response_status,omitempty" db:"response_status"`
+	ResponseTimeMs  *int                    `json:"response_time_ms,omitempty" db:"response_time_ms"`
+	RetryCount      int                     `json:"retry_count" db:"retry_count"`
+	Success         bool                    `json:"success" db:"success"`
+	ErrorMessage    *string                 `json:"error_message,omitempty" db:"error_message"`
+	UserID          *int64                  `json:"user_id,omitempty" db:"user_id"`
+	CreatedAt       time.Time               `json:"created_at" db:"created_at"`
 }
 
 // Validate valida los campos requeridos
 func (a *ApiCall) Validate() error {
 	if a.Provider == "" {
-		return NewValidationError("provider is required")
+		return errors.New("provider is required")
 	}
 	if a.Endpoint == "" {
-		return NewValidationError("endpoint is required")
+		return errors.New("endpoint is required")
 	}
 	if !isValidMethod(a.Method) {
-		return NewValidationError("invalid HTTP method")
+		return errors.New("invalid HTTP method")
 	}
 	return nil
 }
@@ -40,7 +42,7 @@ func (a *ApiCall) Validate() error {
 // SetRequestHeaders establece los headers de la petición
 func (a *ApiCall) SetRequestHeaders(headers map[string]string) error {
 	if headers == nil {
-		a.RequestHeaders = make(map[string]interface{})
+		a.RequestHeaders = nil
 		return nil
 	}
 
@@ -49,14 +51,14 @@ func (a *ApiCall) SetRequestHeaders(headers map[string]string) error {
 	for k, v := range headers {
 		interfaceHeaders[k] = v
 	}
-	a.RequestHeaders = interfaceHeaders
+	a.RequestHeaders = &interfaceHeaders
 	return nil
 }
 
 // SetResponseHeaders establece los headers de la respuesta
 func (a *ApiCall) SetResponseHeaders(headers map[string]string) error {
 	if headers == nil {
-		a.ResponseHeaders = make(map[string]interface{})
+		a.ResponseHeaders = nil
 		return nil
 	}
 
@@ -64,12 +66,12 @@ func (a *ApiCall) SetResponseHeaders(headers map[string]string) error {
 	for k, v := range headers {
 		interfaceHeaders[k] = v
 	}
-	a.ResponseHeaders = interfaceHeaders
+	a.ResponseHeaders = &interfaceHeaders
 	return nil
 }
 
 // MarkSuccess marca la llamada como exitosa
-func (a *ApiCall) MarkSuccess(status int, responseTimeMs int, body *string, headers map[string]string) {
+func (a *ApiCall) MarkSuccess(status int, responseTimeMs int, body *map[string]interface{}, headers map[string]string) {
 	a.Success = true
 	a.ResponseStatus = &status
 	a.ResponseTimeMs = &responseTimeMs
@@ -100,24 +102,18 @@ func (a *ApiCall) ShouldRetry(maxRetries int) bool {
 
 // GetResponseBodyAsJSON obtiene el cuerpo de respuesta como JSON
 func (a *ApiCall) GetResponseBodyAsJSON() (map[string]interface{}, error) {
-	if a.ResponseBody == nil || *a.ResponseBody == "" {
+	if a.ResponseBody == nil {
 		return make(map[string]interface{}), nil
 	}
-
-	var result map[string]interface{}
-	err := json.Unmarshal([]byte(*a.ResponseBody), &result)
-	return result, err
+	return *a.ResponseBody, nil
 }
 
 // GetRequestBodyAsJSON obtiene el cuerpo de petición como JSON
 func (a *ApiCall) GetRequestBodyAsJSON() (map[string]interface{}, error) {
-	if a.RequestBody == nil || *a.RequestBody == "" {
+	if a.RequestBody == nil {
 		return make(map[string]interface{}), nil
 	}
-
-	var result map[string]interface{}
-	err := json.Unmarshal([]byte(*a.RequestBody), &result)
-	return result, err
+	return *a.RequestBody, nil
 }
 
 // GetLatencyCategory categoriza la latencia
@@ -172,16 +168,4 @@ func isValidMethod(method string) bool {
 		"OPTIONS": true,
 	}
 	return validMethods[method]
-}
-
-type ValidationError struct {
-	Message string
-}
-
-func NewValidationError(message string) *ValidationError {
-	return &ValidationError{Message: message}
-}
-
-func (e *ValidationError) Error() string {
-	return e.Message
 }

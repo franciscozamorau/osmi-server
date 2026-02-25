@@ -1,8 +1,7 @@
+// internal/api/grpc/adapter.go
 package grpc
 
 import (
-	"time"
-
 	"github.com/franciscozamorau/osmi-protobuf/gen/pb"
 	"github.com/franciscozamorau/osmi-server/internal/api/dto"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
@@ -10,7 +9,7 @@ import (
 )
 
 // ProtoToCreateCustomerRequest convierte protobuf a DTO
-func ProtoToCreateCustomerRequest(req *pb.CustomerRequest) *dto.CreateCustomerRequest {
+func ProtoToCreateCustomerRequest(req *pb.CreateCustomerRequest) *dto.CreateCustomerRequest {
 	return &dto.CreateCustomerRequest{
 		FullName:        req.Name,
 		Email:           req.Email,
@@ -36,17 +35,17 @@ func CustomerToProto(customer *entities.Customer) *pb.CustomerResponse {
 		PublicId:        customer.PublicID,
 		Name:            customer.FullName,
 		Email:           customer.Email,
-		Phone:           safeStringPtr(customer.Phone),
-		CompanyName:     safeStringPtr(customer.CompanyName),
-		AddressLine1:    safeStringPtr(customer.AddressLine1),
-		AddressLine2:    safeStringPtr(customer.AddressLine2),
-		City:            safeStringPtr(customer.City),
-		State:           safeStringPtr(customer.State),
-		PostalCode:      safeStringPtr(customer.PostalCode),
-		Country:         safeStringPtr(customer.Country),
-		TaxId:           safeStringPtr(customer.TaxID),
-		TaxIdType:       safeStringPtr(customer.TaxIDType),
-		TaxName:         safeStringPtr(customer.TaxName),
+		Phone:           SafeStringPtr(customer.Phone),
+		CompanyName:     SafeStringPtr(customer.CompanyName),
+		AddressLine1:    SafeStringPtr(customer.AddressLine1),
+		AddressLine2:    SafeStringPtr(customer.AddressLine2),
+		City:            SafeStringPtr(customer.City),
+		State:           SafeStringPtr(customer.State),
+		PostalCode:      SafeStringPtr(customer.PostalCode),
+		Country:         SafeStringPtr(customer.Country),
+		TaxId:           SafeStringPtr(customer.TaxID),
+		TaxIdType:       SafeStringPtr(customer.TaxIDType),
+		TaxName:         SafeStringPtr(customer.TaxName),
 		RequiresInvoice: customer.RequiresInvoice,
 		TotalSpent:      customer.TotalSpent,
 		TotalOrders:     int32(customer.TotalOrders),
@@ -59,19 +58,4 @@ func CustomerToProto(customer *entities.Customer) *pb.CustomerResponse {
 		CreatedAt:       timestamppb.New(customer.CreatedAt),
 		UpdatedAt:       timestamppb.New(customer.UpdatedAt),
 	}
-}
-
-// Helper functions
-func safeStringPtr(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}
-
-func safeTimeProto(t *time.Time) *timestamppb.Timestamp {
-	if t == nil || t.IsZero() {
-		return nil
-	}
-	return timestamppb.New(*t)
 }

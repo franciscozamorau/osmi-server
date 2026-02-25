@@ -5,100 +5,38 @@ import (
 	"time"
 )
 
-// AuditLog representa un registro de auditoría del sistema
-type AuditLog struct {
-	ID             int64   `json:"id" db:"id"`
-	PublicID       string  `json:"public_id" db:"public_id"`
-	Action         string  `json:"action" db:"action"`           // create, update, delete, login, logout, etc.
-	EntityType     string  `json:"entity_type" db:"entity_type"` // user, ticket, event, etc.
-	EntityID       int64   `json:"entity_id" db:"entity_id"`
-	EntityPublicID *string `json:"entity_public_id,omitempty" db:"entity_public_id"`
-
-	UserID       *int64  `json:"user_id,omitempty" db:"user_id"`
-	UserPublicID *string `json:"user_public_id,omitempty" db:"user_public_id"`
-	UserName     *string `json:"user_name,omitempty" db:"user_name"`
-	UserEmail    *string `json:"user_email,omitempty" db:"user_email"`
-	UserRole     *string `json:"user_role,omitempty" db:"user_role"`
-
-	IPAddress     *string `json:"ip_address,omitempty" db:"ip_address"`
-	UserAgent     *string `json:"user_agent,omitempty" db:"user_agent"`
-	RequestPath   *string `json:"request_path,omitempty" db:"request_path"`
-	RequestMethod *string `json:"request_method,omitempty" db:"request_method"`
-
-	Changes map[string]interface{} `json:"changes,omitempty" db:"changes"`
-	OldData map[string]interface{} `json:"old_data,omitempty" db:"old_data"`
-	NewData map[string]interface{} `json:"new_data,omitempty" db:"new_data"`
-
-	Severity string  `json:"severity" db:"severity"` // info, warning, error, critical
-	Status   string  `json:"status" db:"status"`     // success, failed
-	Message  string  `json:"message" db:"message"`
-	Error    *string `json:"error,omitempty" db:"error"`
-
-	Metadata map[string]interface{} `json:"metadata,omitempty" db:"metadata"`
-	Tags     []string               `json:"tags,omitempty" db:"tags"`
-
-	CreatedAt time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt *time.Time `json:"updated_at,omitempty" db:"updated_at"`
+// DataChange representa un cambio en datos
+// Mapea exactamente la tabla audit.data_changes
+type DataChange struct {
+	ID int64 `json:"id" db:"id"`
+	// CORREGIDO: La tabla usa table_name, no TableName
+	TableName     string                  `json:"table_name" db:"table_name"`
+	RecordID      int64                   `json:"record_id" db:"record_id"`
+	Operation     string                  `json:"operation" db:"operation"` // INSERT, UPDATE, DELETE
+	OldData       *map[string]interface{} `json:"old_data,omitempty" db:"old_data,type:jsonb"`
+	NewData       *map[string]interface{} `json:"new_data,omitempty" db:"new_data,type:jsonb"`
+	ChangedFields []string                `json:"changed_fields" db:"changed_fields,type:text[]"`
+	UserID        *int64                  `json:"user_id,omitempty" db:"user_id"`
+	IPAddress     *string                 `json:"ip_address,omitempty" db:"ip_address"`
+	UserAgent     *string                 `json:"user_agent,omitempty" db:"user_agent"`
+	RequestPath   *string                 `json:"request_path,omitempty" db:"request_path"`
+	ChangedAt     time.Time               `json:"changed_at" db:"changed_at"`
 }
 
 // SecurityLog representa un registro de seguridad
+// Mapea exactamente la tabla audit.security_logs
 type SecurityLog struct {
-	ID        int64  `json:"id" db:"id"`
-	PublicID  string `json:"public_id" db:"public_id"`
-	EventType string `json:"event_type" db:"event_type"` // login_failed, password_changed, mfa_enabled, etc.
-
-	UserID             *int64  `json:"user_id,omitempty" db:"user_id"`
-	UserPublicID       *string `json:"user_public_id,omitempty" db:"user_public_id"`
-	TargetUserID       *int64  `json:"target_user_id,omitempty" db:"target_user_id"`
-	TargetUserPublicID *string `json:"target_user_public_id,omitempty" db:"target_user_public_id"`
-
-	IPAddress string  `json:"ip_address" db:"ip_address"`
-	UserAgent *string `json:"user_agent,omitempty" db:"user_agent"`
-	Location  *string `json:"location,omitempty" db:"location"`
-
-	Severity  string `json:"severity" db:"severity"` // low, medium, high, critical
-	RiskScore int    `json:"risk_score" db:"risk_score"`
-
-	Description string                 `json:"description" db:"description"`
-	Details     map[string]interface{} `json:"details,omitempty" db:"details"`
-
-	IsSuspicious bool `json:"is_suspicious" db:"is_suspicious"`
-	IsBlocked    bool `json:"is_blocked" db:"is_blocked"`
-	IsResolved   bool `json:"is_resolved" db:"is_resolved"`
-
-	ActionTaken  *string    `json:"action_taken,omitempty" db:"action_taken"`
-	ResolvedBy   *int64     `json:"resolved_by,omitempty" db:"resolved_by"`
-	ResolvedAt   *time.Time `json:"resolved_at,omitempty" db:"resolved_at"`
-	ResolvedNote *string    `json:"resolved_note,omitempty" db:"resolved_note"`
-
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
-}
-
-// DataChange representa un cambio en datos
-type DataChange struct {
-	ID       int64  `json:"id" db:"id"`
-	PublicID string `json:"public_id" db:"public_id"`
-
-	TableName      string  `json:"table_name" db:"table_name"`
-	RecordID       int64   `json:"record_id" db:"record_id"`
-	RecordPublicID *string `json:"record_public_id,omitempty" db:"record_public_id"`
-
-	Operation string    `json:"operation" db:"operation"` // INSERT, UPDATE, DELETE
-	ChangedAt time.Time `json:"changed_at" db:"changed_at"`
-
-	UserID       *int64  `json:"user_id,omitempty" db:"user_id"`
-	UserPublicID *string `json:"user_public_id,omitempty" db:"user_public_id"`
-
-	OldData       map[string]interface{} `json:"old_data,omitempty" db:"old_data"`
-	NewData       map[string]interface{} `json:"new_data,omitempty" db:"new_data"`
-	ChangedFields []string               `json:"changed_fields" db:"changed_fields"`
-	Diff          map[string]interface{} `json:"diff,omitempty" db:"diff"`
-
-	IPAddress *string `json:"ip_address,omitempty" db:"ip_address"`
-	UserAgent *string `json:"user_agent,omitempty" db:"user_agent"`
-	RequestID *string `json:"request_id,omitempty" db:"request_id"`
-
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
+	ID           int64                   `json:"id" db:"id"`
+	EventType    string                  `json:"event_type" db:"event_type"`
+	Severity     string                  `json:"severity" db:"severity"` // low, medium, high, critical
+	Description  string                  `json:"description" db:"description"`
+	UserID       *int64                  `json:"user_id,omitempty" db:"user_id"`
+	TargetUserID *int64                  `json:"target_user_id,omitempty" db:"target_user_id"`
+	IPAddress    *string                 `json:"ip_address,omitempty" db:"ip_address"`
+	UserAgent    *string                 `json:"user_agent,omitempty" db:"user_agent"`
+	RequestPath  *string                 `json:"request_path,omitempty" db:"request_path"`
+	Details      *map[string]interface{} `json:"details,omitempty" db:"details,type:jsonb"`
+	OccurredAt   time.Time               `json:"occurred_at" db:"occurred_at"`
 }
 
 // AuditConfig configuración de auditoría
@@ -161,25 +99,23 @@ type AuditStats struct {
 }
 
 // Métodos de utilidad
-func (a *AuditLog) IsHighSeverity() bool {
-	return a.Severity == "error" || a.Severity == "critical"
-}
 
-func (a *AuditLog) ContainsSensitiveData() bool {
+// ContainsSensitiveData verifica si el cambio contiene datos sensibles
+func (d *DataChange) ContainsSensitiveData() bool {
 	sensitiveFields := []string{
 		"password", "token", "secret", "key",
 		"credit_card", "cvv", "ssn", "sin",
 		"authorization", "api_key", "private_key",
 	}
 
-	// Verificar en changes, old_data, new_data
-	allData := []map[string]interface{}{a.Changes, a.OldData, a.NewData}
+	// Verificar en old_data y new_data
+	allData := []*map[string]interface{}{d.OldData, d.NewData}
 
 	for _, data := range allData {
 		if data == nil {
 			continue
 		}
-		for key := range data {
+		for key := range *data {
 			for _, sensitive := range sensitiveFields {
 				if containsIgnoreCase(key, sensitive) {
 					return true
@@ -190,10 +126,12 @@ func (a *AuditLog) ContainsSensitiveData() bool {
 	return false
 }
 
+// ShouldAlert determina si el evento de seguridad debe generar una alerta
 func (s *SecurityLog) ShouldAlert() bool {
-	return s.Severity == "high" || s.Severity == "critical" || s.RiskScore >= 80
+	return s.Severity == "high" || s.Severity == "critical"
 }
 
+// IsLoginRelated verifica si el evento está relacionado con login
 func (s *SecurityLog) IsLoginRelated() bool {
 	loginEvents := []string{
 		"login_failed", "login_success", "login_attempt",

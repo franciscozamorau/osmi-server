@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/franciscozamorau/osmi-server/internal/api/dto"
+	"github.com/franciscozamorau/osmi-server/internal/api/dto/request"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 	"github.com/franciscozamorau/osmi-server/internal/domain/repository"
 	"github.com/franciscozamorau/osmi-server/internal/shared/security"
@@ -36,9 +36,9 @@ func NewUserService(
 	}
 }
 
-func (s *UserService) Register(ctx context.Context, req *dto.CreateUserRequest) (*entities.User, error) {
+func (s *UserService) Register(ctx context.Context, req *request.CreateUserRequest) (*entities.User, error) {
 	// Validar que el email no exista
-	existing, _ := s.userRepo.FindByEmail(ctx, req.Email)
+	existing, _ := s.userRepo.GetByEmail(ctx, req.Email)
 	if existing != nil {
 		return nil, errors.New("email already registered")
 	}
@@ -62,7 +62,7 @@ func (s *UserService) Register(ctx context.Context, req *dto.CreateUserRequest) 
 		PreferredCurrency: req.PreferredCurrency,
 		Timezone:          req.Timezone,
 		IsActive:          true,
-		LastActiveAt:      time.Now(),
+		LastActiveAt:      nil,
 		CreatedAt:         time.Now(),
 		UpdatedAt:         time.Now(),
 	}
@@ -104,17 +104,20 @@ func (s *UserService) Register(ctx context.Context, req *dto.CreateUserRequest) 
 	return user, nil
 }
 
-func (s *UserService) Login(ctx context.Context, req *dto.LoginRequest) (*entities.Session, *entities.User, error) {
+func (s *UserService) Login(ctx context.Context, req *request.LoginRequest) (*entities.Session, *entities.User, error) {
 	// Buscar usuario por email
-	user, err := s.userRepo.FindByEmail(ctx, req.Email)
+	user, err := s.userRepo.GetByEmail(ctx, req.Email)
 	if err != nil {
 		return nil, nil, errors.New("invalid credentials")
 	}
 
 	// Verificar contraseña
 	if !s.hasher.VerifyPassword(user.PasswordHash, req.Password) {
-		// Incrementar contador de intentos fallidos
-		s.userRepo.IncrementFailedLoginAttempts(ctx, user.ID)
+		// CORREGIDO: Incrementar contador de intentos fallidos (manualmente)
+		// Como el método no existe, actualizamos el contador directamente
+		user.FailedLoginAttempts++
+		user.UpdatedAt = time.Now()
+		s.userRepo.Update(ctx, user)
 		return nil, nil, errors.New("invalid credentials")
 	}
 
@@ -128,10 +131,12 @@ func (s *UserService) Login(ctx context.Context, req *dto.LoginRequest) (*entiti
 		return nil, nil, errors.New("account is inactive")
 	}
 
-	// Resetear contador de intentos fallidos
-	s.userRepo.ResetFailedLoginAttempts(ctx, user.ID)
+	// CORREGIDO: Resetear contador de intentos fallidos (manualmente)
+	user.FailedLoginAttempts = 0
+	user.UpdatedAt = time.Now()
+	s.userRepo.Update(ctx, user)
 
-	// Actualizar último login
+	// Actualizar último login (asumiendo que UpdateLastLogin existe)
 	s.userRepo.UpdateLastLogin(ctx, user.ID, "")
 
 	// Crear sesión
@@ -154,44 +159,44 @@ func (s *UserService) Login(ctx context.Context, req *dto.LoginRequest) (*entiti
 }
 
 func (s *UserService) GetProfile(ctx context.Context, userID int64) (*entities.User, error) {
-	return s.userRepo.FindByID(ctx, userID)
+	return s.userRepo.GetByID(ctx, userID)
 }
 
-func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req *dto.UpdateUserRequest) (*entities.User, error) {
-	user, err := s.userRepo.FindByID(ctx, userID)
+func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req *request.UpdateUserRequest) (*entities.User, error) {
+	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return nil, errors.New("user not found")
 	}
 
 	// Actualizar campos
-	if req.FirstName != "" {
-		user.FirstName = &req.FirstName
+	if req.FirstName != nil {
+		user.FirstName = req.FirstName
 	}
-	if req.LastName != "" {
-		user.LastName = &req.LastName
+	if req.LastName != nil {
+		user.LastName = req.LastName
 	}
-	if req.FirstName != "" && req.LastName != "" {
-		fullName := req.FirstName + " " + req.LastName
+	if req.FirstName != nil && req.LastName != nil {
+		fullName := *req.FirstName + " " + *req.LastName
 		user.FullName = &fullName
 	}
-	if req.Phone != "" {
-		user.Phone = &req.Phone
+	if req.Phone != nil {
+		user.Phone = req.Phone
 	}
-	if req.AvatarURL != "" {
-		user.AvatarURL = &req.AvatarURL
+	if req.AvatarURL != nil {
+		user.AvatarURL = req.AvatarURL
 	}
-	if req.DateOfBirth != "" {
-		dob, _ := time.Parse("2006-01-02", req.DateOfBirth)
+	if req.DateOfBirth != nil {
+		dob, _ := time.Parse("2006-01-02", *req.DateOfBirth)
 		user.DateOfBirth = &dob
 	}
-	if req.PreferredLanguage != "" {
-		user.PreferredLanguage = req.PreferredLanguage
+	if req.PreferredLanguage != nil {
+		user.PreferredLanguage = *req.PreferredLanguage
 	}
-	if req.PreferredCurrency != "" {
-		user.PreferredCurrency = req.PreferredCurrency
+	if req.PreferredCurrency != nil {
+		user.PreferredCurrency = *req.PreferredCurrency
 	}
-	if req.Timezone != "" {
-		user.Timezone = req.Timezone
+	if req.Timezone != nil {
+		user.Timezone = *req.Timezone
 	}
 
 	user.UpdatedAt = time.Now()
@@ -204,8 +209,8 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req *dto.
 	return user, nil
 }
 
-func (s *UserService) ChangePassword(ctx context.Context, userID int64, req *dto.ChangePasswordRequest) error {
-	user, err := s.userRepo.FindByID(ctx, userID)
+func (s *UserService) ChangePassword(ctx context.Context, userID int64, req *request.ChangePasswordRequest) error {
+	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return errors.New("user not found")
 	}
@@ -224,25 +229,10 @@ func (s *UserService) ChangePassword(ctx context.Context, userID int64, req *dto
 	// Actualizar contraseña
 	now := time.Now()
 	user.PasswordHash = newHash
-	user.PasswordChangedAt = &now
+	// CORREGIDO: PasswordChangedAt eliminado (no existe en la entidad)
 	user.UpdatedAt = now
 
 	return s.userRepo.Update(ctx, user)
-}
-
-func (s *UserService) VerifyEmail(ctx context.Context, token string) error {
-	// TODO: Implementar verificación de email
-	return errors.New("not implemented")
-}
-
-func (s *UserService) EnableMFA(ctx context.Context, userID int64) (string, error) {
-	// TODO: Implementar MFA
-	return "", errors.New("not implemented")
-}
-
-func (s *UserService) DisableMFA(ctx context.Context, userID int64, code string) error {
-	// TODO: Implementar deshabilitar MFA
-	return errors.New("not implemented")
 }
 
 func (s *UserService) Logout(ctx context.Context, sessionID string) error {
@@ -255,7 +245,7 @@ func (s *UserService) LogoutAll(ctx context.Context, userID int64) error {
 
 func (s *UserService) DeleteAccount(ctx context.Context, userID int64) error {
 	// Marcar usuario como inactivo en lugar de borrarlo
-	user, err := s.userRepo.FindByID(ctx, userID)
+	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return errors.New("user not found")
 	}

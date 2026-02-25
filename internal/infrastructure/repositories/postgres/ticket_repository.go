@@ -1,956 +1,792 @@
+// internal/infrastructure/repositories/postgres/ticket_repository.go
 package postgres
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/franciscozamorau/osmi-server/internal/infrastructure/repositories/postgres/helpers/errors"
-	"github.com/franciscozamorau/osmi-server/internal/infrastructure/repositories/postgres/helpers/query"
-	"github.com/franciscozamorau/osmi-server/internal/infrastructure/repositories/postgres/helpers/scanner"
-	"github.com/franciscozamorau/osmi-server/internal/infrastructure/repositories/postgres/helpers/types"
-	"github.com/franciscozamorau/osmi-server/internal/infrastructure/repositories/postgres/helpers/utils"
-	"github.com/franciscozamorau/osmi-server/internal/infrastructure/repositories/postgres/helpers/validations"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
+
+	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
+	"github.com/franciscozamorau/osmi-server/internal/domain/enums"
+	"github.com/franciscozamorau/osmi-server/internal/domain/repository"
 )
 
+// TicketRepository implementa la interfaz repository.TicketRepository usando PostgreSQL
 type TicketRepository struct {
-	db          *pgxpool.Pool
-	converter   *types.Converter
-	ticketConv  *types.TicketConverter
-	scanner     *scanner.RowScanner
-	ticketScan  *scanner.TicketScanner
-	errHandler  *errors.PostgresErrorHandler
-	validator   *errors.Validator
-	logger      *utils.Logger
-	queryBuilder *query.QueryBuilder
+	db *sqlx.DB
 }
 
-func NewTicketRepository(db *pgxpool.Pool) *TicketRepository {
-	conv := types.NewConverter()
-	
+// NewTicketRepository crea una nueva instancia del repositorio
+func NewTicketRepository(db *sqlx.DB) *TicketRepository {
 	return &TicketRepository{
-		db:          db,
-		converter:   conv,
-		ticketConv:  types.NewTicketConverter(),
-		scanner:     scanner.NewRowScanner(),
-		ticketScan:  scanner.NewTicketScanner(),
-		errHandler:  errors.NewPostgresErrorHandler(),
-		validator:   errors.NewValidator(),
-		logger:      utils.NewLogger("ticket-repository"),
-		queryBuilder: query.NewQueryBuilder(""),
+		db: db,
 	}
 }
 
-// Valid ticket statuses usando validaciones del paquete validations
-var validTicketStatuses = map[string]bool{
-	"available":   true,
-	"reserved":    true,
-	"sold":        true,
-	"used":        true,
-	"cancelled":   true,
-	"transferred": true,
-	"refunded":    true,
-}
-
-// Valid status transitions
-var validStatusTransitions = map[string]map[string]bool{
-	"available": {
-		"reserved":  true,
-		"sold":      true,
-		"cancelled": true,
-	},
-	"reserved": {
-		"sold":      true,
-		"available": true,
-		"cancelled": true,
-	},
-	"sold": {
-		"used":        true,
-		"cancelled":   true,
-		"transferred": true,
-		"refunded":    true,
-	},
-	"used": {
-		// No transitions from used
-	},
-	"cancelled": {
-		// No transitions from cancelled
-	},
-	"transferred": {
-		"used": true,
-	},
-	"refunded": {
-		// No transitions from refunded
-	},
-}
-
-// CreateTicket crea un nuevo ticket con todos los helpers
-func (r *TicketRepository) CreateTicket(ctx context.Context, req *pb.TicketRequest) (string, error) {
-	startTime := time.Now()
-	
-	// Validar y limpiar datos usando utils
-	eventID := strings.TrimSpace(req.EventId)
-	categoryID := strings.TrimSpace(req.CategoryId)
-	customerID := strings.TrimSpace(req.CustomerId) // OBLIGATORIO
-	userID := strings.TrimSpace(req.UserId)         // OPCIONAL
-
-	// Validaciones básicas usando validator
-	r.validator.Required("event_id", eventID).
-		Required("category_id", categoryID).
-		Required("customer_id", customerID)
-	
-	if validationErr := r.validator.Validate(); validationErr != nil {
-		return "", validationErr
-	}
-
-	// Validar UUIDs usando validations
-	if !validations.IsValidUUID(eventID) {
-		return "", fmt.Errorf("invalid event ID format: must be a valid UUID")
-	}
-	if !validations.IsValidUUID(categoryID) {
-		return "", fmt.Errorf("invalid category ID format: must be a valid UUID")
-	}
-	if !validations.IsValidUUID(customerID) {
-		return "", fmt.Errorf("invalid customer ID format: must be a valid UUID")
-	}
-	if userID != "" && !validations.IsValidUUID(userID) {
-		return "", fmt.Errorf("invalid user ID format: must be a valid UUID")
-	}
-
-	// Validar existencia del event_id y category_id
-	if err := r.validateEventAndCategory(ctx, eventID, categoryID); err != nil {
-		return "", err
-	}
-
-	// Buscar customer_id interno (OBLIGATORIO)
-	customerInternalID, err := r.getCustomerIDByPublicID(ctx, customerID)
-	if err != nil {
-		r.logger.Error("Failed to find customer", err, map[string]interface{}{
-			"customer_id": customerID,
-		})
-		return "", fmt.Errorf("error finding customer: %w", err)
-	}
-
-	// pgtype.Int4 porque user_id es integer en BD
-	var userInternalID types.Converter.Int4Result
-	if userID != "" {
-		uid, err := r.getUserIDByPublicID(ctx, userID)
-		if err != nil {
-			r.logger.Error("Failed to find user", err, map[string]interface{}{
-				"user_id": userID,
-			})
-			return "", fmt.Errorf("error finding user: %w", err)
-		}
-		userInternalID = r.converter.Int64Ptr(&uid)
-	} else {
-		userInternalID = r.converter.Int64Ptr(nil)
-	}
-
-	// Obtener IDs internos
-	categoryInternalID, err := r.getCategoryIDByPublicID(ctx, categoryID)
-	if err != nil {
-		return "", fmt.Errorf("error finding category: %w", err)
-	}
-
-	eventInternalID, err := r.getEventIDByPublicID(ctx, eventID)
-	if err != nil {
-		return "", fmt.Errorf("error finding event: %w", err)
-	}
-
-	// Verificar disponibilidad en la categoría
-	if err := r.checkCategoryAvailability(ctx, categoryInternalID); err != nil {
-		return "", err
-	}
-
-	// Obtener precio de la categoría
-	categoryPrice, err := r.getCategoryPrice(ctx, categoryInternalID)
-	if err != nil {
-		return "", fmt.Errorf("error getting category price: %w", err)
-	}
-
-	// Crear múltiples tickets según quantity
-	quantity := int(req.Quantity)
-	if quantity <= 0 {
-		quantity = 1
-	}
-	if quantity > 10 { // Límite razonable
-		return "", fmt.Errorf("cannot create more than 10 tickets at once")
-	}
-
-	var createdTicketPublicID string
-
-	// Usar transacción con transaction manager
-	tm := errors.NewTransactionManager(r.errHandler)
-	
-	err = tm.ExecuteInTransaction(ctx, r.db, func(tx interface{}) error {
-		for i := 0; i < quantity; i++ {
-			publicID := uuid.New().String()
-			code, err := r.generateUniqueTicketCode(ctx, tx.(pgx.Tx), eventID, customerID, i)
-			if err != nil {
-				return fmt.Errorf("error generating ticket code: %w", err)
-			}
-
-			// Insertar con customer_id (obligatorio) y user_id (opcional)
-			query := `INSERT INTO tickets (
-				public_id, category_id, event_id, customer_id, user_id,
-				code, status, price, created_at, updated_at
-			) VALUES ($1, $2, $3, $4, $5, $6, 'available', $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-			RETURNING public_id`
-
-			var ticketPublicID string
-			err = tx.(pgx.Tx).QueryRow(ctx, query,
-				publicID,
-				categoryInternalID,
-				eventInternalID,
-				customerInternalID, // $4 - OBLIGATORIO
-				userInternalID,     // $5 - OPCIONAL (puede ser NULL)
-				code,               // $6
-				categoryPrice,      // $7
-			).Scan(&ticketPublicID)
-
-			if err != nil {
-				if r.errHandler.IsDuplicateKey(err) {
-					return fmt.Errorf("ticket with code %s already exists", utils.SafeStringForLog(code))
-				}
-				return fmt.Errorf("error creating ticket %d/%d: %w", i+1, quantity, err)
-			}
-
-			// Guardar el public_id del primer ticket creado para retornar
-			if i == 0 {
-				createdTicketPublicID = ticketPublicID
-			}
-		}
-
-		// Actualizar contador de tickets vendidos en la categoría
-		updateQuery := `
-			UPDATE categories 
-			SET quantity_sold = quantity_sold + $1, updated_at = CURRENT_TIMESTAMP
-			WHERE id = $2
-		`
-		_, err := tx.(pgx.Tx).Exec(ctx, updateQuery, quantity, categoryInternalID)
-		if err != nil {
-			return fmt.Errorf("error updating category sold count: %w", err)
-		}
-
+// handleError mapea errores de PostgreSQL a nuestros errores de dominio
+func (r *TicketRepository) handleError(err error, context string) error {
+	if err == nil {
 		return nil
-	})
-
-	if err != nil {
-		r.logger.DatabaseLogger("INSERT", "tickets", time.Since(startTime), 0, err, map[string]interface{}{
-			"quantity": quantity,
-			"event_id": utils.SafeStringForLog(eventID),
-			"category_id": utils.SafeStringForLog(categoryID),
-		})
-		return "", err
 	}
 
-	r.logger.DatabaseLogger("INSERT", "tickets", time.Since(startTime), int64(quantity), nil, map[string]interface{}{
-		"quantity": quantity,
-		"event_id": utils.SafeStringForLog(eventID),
-		"category_id": utils.SafeStringForLog(categoryID),
-		"customer_id": customerInternalID,
-	})
-	
-	return createdTicketPublicID, nil
+	// Errores específicos de PostgreSQL
+	if pqErr, ok := err.(*pq.Error); ok {
+		switch pqErr.Code {
+		case "23505": // Unique violation
+			if strings.Contains(pqErr.Constraint, "tickets_code_key") {
+				return repository.ErrTicketDuplicateCode
+			}
+			if strings.Contains(pqErr.Constraint, "tickets_public_uuid_key") {
+				return repository.ErrTicketAlreadyExists
+			}
+		case "23503": // Foreign key violation
+			return fmt.Errorf("referenced record not found: %w", err)
+		}
+	}
+
+	// Wrap el error para dar contexto
+	if errors.Is(err, sql.ErrNoRows) {
+		return repository.ErrTicketNotFound
+	}
+
+	return fmt.Errorf("%s: %w", context, err)
 }
 
-// GetTicketsByUserID obtiene todos los tickets de un usuario usando scanner
-func (r *TicketRepository) GetTicketsByUserID(ctx context.Context, userPublicID string) ([]*models.Ticket, error) {
-	startTime := time.Now()
-	
-	if !validations.IsValidUUID(userPublicID) {
-		return nil, fmt.Errorf("invalid user ID format")
-	}
-
-	// Usar query builder
-	qb := query.NewQueryBuilder(`
-		SELECT t.id, t.public_id, t.category_id, t.transaction_id, t.event_id, 
-			   t.customer_id, t.user_id, t.code, t.status, t.seat_number, 
-			   t.qr_code_url, t.price, t.used_at, t.transferred_from_ticket_id, 
-			   t.created_at, t.updated_at
-		FROM tickets t
-		INNER JOIN users u ON t.user_id = u.id
-	`).Where("u.public_id = ?", userPublicID).
-		OrderBy("t.created_at", true)
-
-	queryStr, args := qb.Build()
-
-	rows, err := r.db.Query(ctx, queryStr, args...)
-	if err != nil {
-		r.logger.DatabaseLogger("SELECT", "tickets", time.Since(startTime), 0, err, map[string]interface{}{
-			"user_id": utils.SafeStringForLog(userPublicID),
-		})
-		return nil, r.errHandler.WrapError(err, "ticket repository", "get tickets by user")
-	}
-	defer rows.Close()
-
-	tickets, err := r.ticketScan.ScanAllRows(rows, r.ticketScan.ScanTicket)
-	if err != nil {
-		r.logger.Error("Failed to scan tickets", err, map[string]interface{}{
-			"user_id": utils.SafeStringForLog(userPublicID),
-		})
-		return nil, err
-	}
-
-	r.logger.DatabaseLogger("SELECT", "tickets", time.Since(startTime), int64(len(tickets)), nil, map[string]interface{}{
-		"user_id": utils.SafeStringForLog(userPublicID),
-		"count": len(tickets),
-	})
-	
-	return tickets, nil
-}
-
-// GetTicketsByCustomerID obtiene todos los tickets de un cliente
-func (r *TicketRepository) GetTicketsByCustomerID(ctx context.Context, customerPublicID string) ([]*models.Ticket, error) {
-	startTime := time.Now()
-	
-	if !validations.IsValidUUID(customerPublicID) {
-		return nil, fmt.Errorf("invalid customer ID format")
-	}
-
-	qb := query.NewQueryBuilder(`
-		SELECT t.id, t.public_id, t.category_id, t.transaction_id, t.event_id, 
-			   t.customer_id, t.user_id, t.code, t.status, t.seat_number, 
-			   t.qr_code_url, t.price, t.used_at, t.transferred_from_ticket_id, 
-			   t.created_at, t.updated_at
-		FROM tickets t
-		INNER JOIN customers c ON t.customer_id = c.id
-	`).Where("c.public_id = ?", customerPublicID).
-		OrderBy("t.created_at", true)
-
-	queryStr, args := qb.Build()
-
-	rows, err := r.db.Query(ctx, queryStr, args...)
-	if err != nil {
-		r.logger.DatabaseLogger("SELECT", "tickets", time.Since(startTime), 0, err, map[string]interface{}{
-			"customer_id": utils.SafeStringForLog(customerPublicID),
-		})
-		return nil, r.errHandler.WrapError(err, "ticket repository", "get tickets by customer")
-	}
-	defer rows.Close()
-
-	tickets, err := r.ticketScan.ScanAllRows(rows, r.ticketScan.ScanTicket)
-	if err != nil {
-		r.logger.Error("Failed to scan tickets", err, map[string]interface{}{
-			"customer_id": utils.SafeStringForLog(customerPublicID),
-		})
-		return nil, err
-	}
-
-	r.logger.DatabaseLogger("SELECT", "tickets", time.Since(startTime), int64(len(tickets)), nil, map[string]interface{}{
-		"customer_id": utils.SafeStringForLog(customerPublicID),
-		"count": len(tickets),
-	})
-	
-	return tickets, nil
-}
-
-// GetTicketWithDetails obtiene un ticket con información completa usando scanner
-func (r *TicketRepository) GetTicketWithDetails(ctx context.Context, ticketPublicID string) (*models.TicketWithDetails, error) {
-	startTime := time.Now()
-	
-	if !validations.IsValidUUID(ticketPublicID) {
-		return nil, fmt.Errorf("invalid ticket ID format")
-	}
-
-	query := `
+// Find busca tickets según los criterios del filtro
+func (r *TicketRepository) Find(ctx context.Context, filter *repository.TicketFilter) ([]*entities.Ticket, int64, error) {
+	// Query base
+	baseQuery := `
 		SELECT 
-			t.public_id, t.code, t.status, t.seat_number, t.price, t.created_at, t.used_at,
-			cat.public_id as category_id, cat.name as category_name,
-			ev.public_id as event_id, ev.name as event_name, ev.start_date, ev.location,
-			cust.public_id as customer_id, cust.name as customer_name, cust.email as customer_email,
-			cust.customer_type,
-			u.public_id as user_id, u.username as user_name, u.role as user_role,
-			trans.public_id as transaction_id, trans.status as transaction_status
-		FROM tickets t
-		LEFT JOIN categories cat ON t.category_id = cat.id
-		LEFT JOIN events ev ON t.event_id = ev.id
-		LEFT JOIN customers cust ON t.customer_id = cust.id
-		LEFT JOIN users u ON t.user_id = u.id
-		LEFT JOIN transactions trans ON t.transaction_id = trans.id
-		WHERE t.public_id = $1
+			id, public_uuid, ticket_type_id, event_id, customer_id, order_id,
+			code, secret_hash, qr_code_data, status, final_price, currency, tax_amount,
+			attendee_name, attendee_email, attendee_phone,
+			checked_in_at, checked_in_by, checkin_method, checkin_location,
+			reserved_at, reserved_by, reservation_expires_at,
+			transfer_token, transferred_from, transferred_at,
+			validation_count, last_validated_at,
+			sold_at, cancelled_at, refunded_at,
+			created_at, updated_at
+		FROM ticketing.tickets
+		WHERE 1=1
 	`
 
-	row := r.db.QueryRow(ctx, query, ticketPublicID)
-	details, err := r.ticketScan.ScanTicketWithEvent(row)
-	
-	if err != nil {
-		if err.Error() == "ticket not found" {
-			r.logger.Debug("Ticket not found", map[string]interface{}{
-				"ticket_id": ticketPublicID,
-			})
-			return nil, err
+	countQuery := `SELECT COUNT(*) FROM ticketing.tickets WHERE 1=1`
+
+	var conditions []string
+	var args []interface{}
+	argPos := 1
+
+	// Aplicar filtros
+	if filter != nil {
+		// Filtro por IDs
+		if len(filter.IDs) > 0 {
+			conditions = append(conditions, fmt.Sprintf("id = ANY($%d)", argPos))
+			args = append(args, pq.Array(filter.IDs))
+			argPos++
 		}
-		
-		r.logger.DatabaseLogger("SELECT", "tickets", time.Since(startTime), 0, err, map[string]interface{}{
-			"ticket_id": ticketPublicID,
-		})
-		
-		return nil, r.errHandler.WrapError(err, "ticket repository", "get ticket details")
+
+		// Filtro por PublicIDs
+		if len(filter.PublicIDs) > 0 {
+			conditions = append(conditions, fmt.Sprintf("public_uuid = ANY($%d)", argPos))
+			args = append(args, pq.Array(filter.PublicIDs))
+			argPos++
+		}
+
+		// Filtro por EventID
+		if filter.EventID != nil {
+			conditions = append(conditions, fmt.Sprintf("event_id = $%d", argPos))
+			args = append(args, *filter.EventID)
+			argPos++
+		}
+
+		// Filtro por TicketTypeID
+		if filter.TicketTypeID != nil {
+			conditions = append(conditions, fmt.Sprintf("ticket_type_id = $%d", argPos))
+			args = append(args, *filter.TicketTypeID)
+			argPos++
+		}
+
+		// Filtro por CustomerID
+		if filter.CustomerID != nil {
+			conditions = append(conditions, fmt.Sprintf("customer_id = $%d", argPos))
+			args = append(args, *filter.CustomerID)
+			argPos++
+		}
+
+		// Filtro por OrderID
+		if filter.OrderID != nil {
+			conditions = append(conditions, fmt.Sprintf("order_id = $%d", argPos))
+			args = append(args, *filter.OrderID)
+			argPos++
+		}
+
+		// Filtro por Code
+		if filter.Code != nil {
+			conditions = append(conditions, fmt.Sprintf("code = $%d", argPos))
+			args = append(args, *filter.Code)
+			argPos++
+		}
+
+		// Filtro por Status (múltiples estados)
+		if len(filter.Status) > 0 {
+			statusStrings := make([]string, len(filter.Status))
+			for i, s := range filter.Status {
+				statusStrings[i] = string(s)
+			}
+			conditions = append(conditions, fmt.Sprintf("status = ANY($%d)", argPos))
+			args = append(args, pq.Array(statusStrings))
+			argPos++
+		}
+
+		// Filtro por TransferToken
+		if filter.TransferToken != nil {
+			conditions = append(conditions, fmt.Sprintf("transfer_token = $%d", argPos))
+			args = append(args, *filter.TransferToken)
+			argPos++
+		}
+
+		// Filtros por fechas
+		if filter.CreatedFrom != nil {
+			conditions = append(conditions, fmt.Sprintf("created_at >= $%d", argPos))
+			args = append(args, *filter.CreatedFrom)
+			argPos++
+		}
+		if filter.CreatedTo != nil {
+			conditions = append(conditions, fmt.Sprintf("created_at <= $%d", argPos))
+			args = append(args, *filter.CreatedTo)
+			argPos++
+		}
+		if filter.SoldFrom != nil {
+			conditions = append(conditions, fmt.Sprintf("sold_at >= $%d", argPos))
+			args = append(args, *filter.SoldFrom)
+			argPos++
+		}
+		if filter.SoldTo != nil {
+			conditions = append(conditions, fmt.Sprintf("sold_at <= $%d", argPos))
+			args = append(args, *filter.SoldTo)
+			argPos++
+		}
+		if filter.CheckedInFrom != nil {
+			conditions = append(conditions, fmt.Sprintf("checked_in_at >= $%d", argPos))
+			args = append(args, *filter.CheckedInFrom)
+			argPos++
+		}
+		if filter.CheckedInTo != nil {
+			conditions = append(conditions, fmt.Sprintf("checked_in_at <= $%d", argPos))
+			args = append(args, *filter.CheckedInTo)
+			argPos++
+		}
+
+		// Filtros booleanos
+		if filter.HasCheckedIn != nil {
+			if *filter.HasCheckedIn {
+				conditions = append(conditions, "checked_in_at IS NOT NULL")
+			} else {
+				conditions = append(conditions, "checked_in_at IS NULL")
+			}
+		}
+		if filter.HasReservation != nil {
+			if *filter.HasReservation {
+				conditions = append(conditions, "reserved_at IS NOT NULL")
+			} else {
+				conditions = append(conditions, "reserved_at IS NULL")
+			}
+		}
 	}
 
-	r.logger.DatabaseLogger("SELECT", "tickets", time.Since(startTime), 1, nil, map[string]interface{}{
-		"ticket_id": ticketPublicID,
-	})
-	
-	return &models.TicketWithDetails{
-		TicketID: details.TicketID,
-		Code: details.Code,
-		Status: details.Status,
-		Price: details.Price,
-		CreatedAt: details.CreatedAt,
-		EventID: details.EventID,
-		EventName: details.EventName,
-		EventDate: details.EventDate,
-		VenueName: details.VenueName,
-	}, nil
+	// Unir condiciones
+	if len(conditions) > 0 {
+		whereClause := " AND " + strings.Join(conditions, " AND ")
+		baseQuery += whereClause
+		countQuery += whereClause
+	}
+
+	// Obtener total
+	var total int64
+	err := r.db.GetContext(ctx, &total, countQuery, args...)
+	if err != nil {
+		return nil, 0, r.handleError(err, "failed to count tickets")
+	}
+
+	// Añadir ordenamiento y paginación
+	if filter != nil {
+		// Ordenamiento
+		sortBy := "created_at"
+		sortOrder := "DESC"
+		if filter.SortBy != "" {
+			allowedSortColumns := map[string]bool{
+				"created_at":    true,
+				"sold_at":       true,
+				"checked_in_at": true,
+				"final_price":   true,
+				"status":        true,
+			}
+			if allowedSortColumns[filter.SortBy] {
+				sortBy = filter.SortBy
+			}
+		}
+		if filter.SortOrder != "" {
+			if strings.ToUpper(filter.SortOrder) == "ASC" {
+				sortOrder = "ASC"
+			}
+		}
+		baseQuery += fmt.Sprintf(" ORDER BY %s %s", sortBy, sortOrder)
+
+		// Paginación
+		if filter.Limit > 0 {
+			baseQuery += fmt.Sprintf(" LIMIT $%d", argPos)
+			args = append(args, filter.Limit)
+			argPos++
+		}
+		if filter.Offset > 0 {
+			baseQuery += fmt.Sprintf(" OFFSET $%d", argPos)
+			args = append(args, filter.Offset)
+			argPos++
+		}
+	}
+
+	// Ejecutar query
+	var tickets []*entities.Ticket
+	err = r.db.SelectContext(ctx, &tickets, baseQuery, args...)
+	if err != nil {
+		return nil, 0, r.handleError(err, "failed to find tickets")
+	}
+
+	return tickets, total, nil
 }
 
-// GetTicketByPublicID obtiene un ticket por public_id usando scanner
-func (r *TicketRepository) GetTicketByPublicID(ctx context.Context, publicID string) (*models.Ticket, error) {
-	startTime := time.Now()
-	
-	if !validations.IsValidUUID(publicID) {
-		return nil, fmt.Errorf("invalid ticket ID format")
+// GetByID obtiene un ticket por su ID numérico
+func (r *TicketRepository) GetByID(ctx context.Context, id int64) (*entities.Ticket, error) {
+	filter := &repository.TicketFilter{
+		IDs:   []int64{id},
+		Limit: 1,
 	}
 
-	query := `
-		SELECT id, public_id, category_id, transaction_id, event_id, 
-		       customer_id, user_id, code, status, seat_number, 
-		       qr_code_url, price, used_at, transferred_from_ticket_id, 
-		       created_at, updated_at
-		FROM tickets 
-		WHERE public_id = $1
-	`
-
-	row := r.db.QueryRow(ctx, query, publicID)
-	ticket, err := r.ticketScan.ScanTicket(row)
-	
+	tickets, _, err := r.Find(ctx, filter)
 	if err != nil {
-		if err.Error() == "ticket not found" {
-			r.logger.Debug("Ticket not found", map[string]interface{}{
-				"ticket_id": publicID,
-			})
-			return nil, err
-		}
-		
-		r.logger.DatabaseLogger("SELECT", "tickets", time.Since(startTime), 0, err, map[string]interface{}{
-			"ticket_id": publicID,
-		})
-		
-		return nil, r.errHandler.WrapError(err, "ticket repository", "get ticket by public ID")
+		return nil, err
 	}
 
-	r.logger.DatabaseLogger("SELECT", "tickets", time.Since(startTime), 1, nil, map[string]interface{}{
-		"ticket_id": publicID,
-	})
-	
-	return ticket, nil
+	if len(tickets) == 0 {
+		return nil, repository.ErrTicketNotFound
+	}
+
+	return tickets[0], nil
 }
 
-// UpdateTicketStatus actualiza el estado de un ticket con validación
-func (r *TicketRepository) UpdateTicketStatus(ctx context.Context, ticketPublicID string, status string) error {
-	startTime := time.Now()
-	
-	if !validations.IsValidUUID(ticketPublicID) {
-		return fmt.Errorf("invalid ticket ID format")
+// GetByPublicID obtiene un ticket por su UUID público
+func (r *TicketRepository) GetByPublicID(ctx context.Context, publicID string) (*entities.Ticket, error) {
+	filter := &repository.TicketFilter{
+		PublicIDs: []string{publicID},
+		Limit:     1,
 	}
 
-	// Validar estado usando validations
-	status = strings.ToLower(strings.TrimSpace(status))
-	if !validations.IsValidTicketStatus(status) {
-		return fmt.Errorf("invalid ticket status: %s", status)
-	}
-
-	// Obtener ticket antiguo para validar transición
-	oldTicket, err := r.GetTicketByPublicID(ctx, ticketPublicID)
+	tickets, _, err := r.Find(ctx, filter)
 	if err != nil {
+		return nil, err
+	}
+
+	if len(tickets) == 0 {
+		return nil, repository.ErrTicketNotFound
+	}
+
+	return tickets[0], nil
+}
+
+// GetByCode obtiene un ticket por su código único
+func (r *TicketRepository) GetByCode(ctx context.Context, code string) (*entities.Ticket, error) {
+	filter := &repository.TicketFilter{
+		Code:  &code,
+		Limit: 1,
+	}
+
+	tickets, _, err := r.Find(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(tickets) == 0 {
+		return nil, repository.ErrTicketNotFound
+	}
+
+	return tickets[0], nil
+}
+
+// Create inserta un nuevo ticket
+func (r *TicketRepository) Create(ctx context.Context, ticket *entities.Ticket) error {
+	// Validar el ticket
+	if err := ticket.Validate(); err != nil {
 		return err
 	}
 
-	// Validar transición de estado
-	if !r.isValidStatusTransition(oldTicket.Status, status) {
-		return fmt.Errorf("invalid status transition from %s to %s", oldTicket.Status, status)
-	}
-
-	query := `UPDATE tickets SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE public_id = $2`
-
-	result, err := r.db.Exec(ctx, query, status, ticketPublicID)
-	if err != nil {
-		r.logger.DatabaseLogger("UPDATE", "tickets", time.Since(startTime), 0, err, map[string]interface{}{
-			"ticket_id": ticketPublicID,
-			"old_status": oldTicket.Status,
-			"new_status": status,
-		})
-		
-		return r.errHandler.WrapError(err, "ticket repository", "update ticket status")
-	}
-
-	rowsAffected := result.RowsAffected()
-	if rowsAffected == 0 {
-		r.logger.Debug("Ticket not found for status update", map[string]interface{}{
-			"ticket_id": ticketPublicID,
-		})
-		return fmt.Errorf("ticket not found with public_id: %s", ticketPublicID)
-	}
-
-	r.logger.DatabaseLogger("UPDATE", "tickets", time.Since(startTime), rowsAffected, nil, map[string]interface{}{
-		"ticket_id": ticketPublicID,
-		"old_status": oldTicket.Status,
-		"new_status": status,
-	})
-	
-	return nil
-}
-
-// UpdateTicketTransaction actualiza el transaction_id de un ticket
-func (r *TicketRepository) UpdateTicketTransaction(ctx context.Context, ticketPublicID string, transactionID int64) error {
-	startTime := time.Now()
-	
-	if !validations.IsValidUUID(ticketPublicID) {
-		return fmt.Errorf("invalid ticket ID format")
-	}
-
-	query := `UPDATE tickets SET transaction_id = $1, updated_at = CURRENT_TIMESTAMP WHERE public_id = $2`
-
-	result, err := r.db.Exec(ctx, query, transactionID, ticketPublicID)
-	if err != nil {
-		r.logger.DatabaseLogger("UPDATE", "tickets", time.Since(startTime), 0, err, map[string]interface{}{
-			"ticket_id": ticketPublicID,
-			"transaction_id": transactionID,
-		})
-		
-		return r.errHandler.WrapError(err, "ticket repository", "update ticket transaction")
-	}
-
-	rowsAffected := result.RowsAffected()
-	if rowsAffected == 0 {
-		r.logger.Debug("Ticket not found for transaction update", map[string]interface{}{
-			"ticket_id": ticketPublicID,
-		})
-		return fmt.Errorf("ticket not found with public_id: %s", ticketPublicID)
-	}
-
-	r.logger.DatabaseLogger("UPDATE", "tickets", time.Since(startTime), rowsAffected, nil, map[string]interface{}{
-		"ticket_id": ticketPublicID,
-		"transaction_id": transactionID,
-	})
-	
-	return nil
-}
-
-// MarkTicketAsUsed marca un ticket como usado
-func (r *TicketRepository) MarkTicketAsUsed(ctx context.Context, ticketPublicID string) error {
-	startTime := time.Now()
-	
-	if !validations.IsValidUUID(ticketPublicID) {
-		return fmt.Errorf("invalid ticket ID format")
-	}
-
 	query := `
-		UPDATE tickets 
-		SET status = 'used', used_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP 
-		WHERE public_id = $1 AND status = 'sold'
+		INSERT INTO ticketing.tickets (
+			public_uuid, ticket_type_id, event_id, customer_id, order_id,
+			code, secret_hash, qr_code_data, status, final_price, currency, tax_amount,
+			attendee_name, attendee_email, attendee_phone,
+			checked_in_at, checked_in_by, checkin_method, checkin_location,
+			reserved_at, reserved_by, reservation_expires_at,
+			transfer_token, transferred_from, transferred_at,
+			validation_count, last_validated_at,
+			sold_at, cancelled_at, refunded_at,
+			created_at, updated_at
+		) VALUES (
+			gen_random_uuid(), $1, $2, $3, $4,
+			$5, $6, $7, $8, $9, $10, $11,
+			$12, $13, $14, $15, $16, $17, $18,
+			$19, $20, $21, $22, $23, $24,
+			$25, $26, $27, $28, $29,
+			NOW(), NOW()
+		)
+		RETURNING id, public_uuid, created_at, updated_at
 	`
 
-	result, err := r.db.Exec(ctx, query, ticketPublicID)
+	err := r.db.QueryRowContext(
+		ctx, query,
+		ticket.TicketTypeID, ticket.EventID, ticket.CustomerID, ticket.OrderID,
+		ticket.Code, ticket.SecretHash, ticket.QRCodeData, ticket.Status,
+		ticket.FinalPrice, ticket.Currency, ticket.TaxAmount,
+		ticket.AttendeeName, ticket.AttendeeEmail, ticket.AttendeePhone,
+		ticket.CheckedInAt, ticket.CheckedInBy, ticket.CheckinMethod, ticket.CheckinLocation,
+		ticket.ReservedAt, ticket.ReservedBy, ticket.ReservationExpiresAt,
+		ticket.TransferToken, ticket.TransferredFrom, ticket.TransferredAt,
+		ticket.ValidationCount, ticket.LastValidatedAt,
+		ticket.SoldAt, ticket.CancelledAt, ticket.RefundedAt,
+	).Scan(&ticket.ID, &ticket.PublicID, &ticket.CreatedAt, &ticket.UpdatedAt)
+
 	if err != nil {
-		r.logger.DatabaseLogger("UPDATE", "tickets", time.Since(startTime), 0, err, map[string]interface{}{
-			"ticket_id": ticketPublicID,
-		})
-		
-		return r.errHandler.WrapError(err, "ticket repository", "mark ticket as used")
+		return r.handleError(err, "failed to create ticket")
 	}
 
-	rowsAffected := result.RowsAffected()
-	if rowsAffected == 0 {
-		r.logger.Debug("Ticket not found or not in sold status", map[string]interface{}{
-			"ticket_id": ticketPublicID,
-		})
-		return fmt.Errorf("ticket not found or not in sold status: %s", ticketPublicID)
-	}
-
-	r.logger.DatabaseLogger("UPDATE", "tickets", time.Since(startTime), rowsAffected, nil, map[string]interface{}{
-		"ticket_id": ticketPublicID,
-	})
-	
 	return nil
 }
 
-// GetTicketsByEvent obtiene todos los tickets de un evento
-func (r *TicketRepository) GetTicketsByEvent(ctx context.Context, eventPublicID string) ([]*models.Ticket, error) {
-	startTime := time.Now()
-	
-	if !validations.IsValidUUID(eventPublicID) {
-		return nil, fmt.Errorf("invalid event ID format")
+// CreateBatch crea múltiples tickets en una transacción
+func (r *TicketRepository) CreateBatch(ctx context.Context, tickets []*entities.Ticket) error {
+	if len(tickets) == 0 {
+		return nil
 	}
 
-	qb := query.NewQueryBuilder(`
-		SELECT t.id, t.public_id, t.category_id, t.transaction_id, t.event_id, 
-			   t.customer_id, t.user_id, t.code, t.status, t.seat_number, 
-			   t.qr_code_url, t.price, t.used_at, t.transferred_from_ticket_id, 
-			   t.created_at, t.updated_at
-		FROM tickets t
-		INNER JOIN events e ON t.event_id = e.id
-	`).Where("e.public_id = ?", eventPublicID).
-		OrderBy("t.created_at", true)
-
-	queryStr, args := qb.Build()
-
-	rows, err := r.db.Query(ctx, queryStr, args...)
+	// Iniciar transacción
+	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
-		r.logger.DatabaseLogger("SELECT", "tickets", time.Since(startTime), 0, err, map[string]interface{}{
-			"event_id": utils.SafeStringForLog(eventPublicID),
-		})
-		return nil, r.errHandler.WrapError(err, "ticket repository", "get tickets by event")
+		return r.handleError(err, "failed to begin transaction")
 	}
-	defer rows.Close()
-
-	tickets, err := r.ticketScan.ScanAllRows(rows, r.ticketScan.ScanTicket)
-	if err != nil {
-		r.logger.Error("Failed to scan tickets", err, map[string]interface{}{
-			"event_id": utils.SafeStringForLog(eventPublicID),
-		})
-		return nil, err
-	}
-
-	r.logger.DatabaseLogger("SELECT", "tickets", time.Since(startTime), int64(len(tickets)), nil, map[string]interface{}{
-		"event_id": utils.SafeStringForLog(eventPublicID),
-		"count": len(tickets),
-	})
-	
-	return tickets, nil
-}
-
-// GetTicketsByStatus obtiene tickets por estado
-func (r *TicketRepository) GetTicketsByStatus(ctx context.Context, status string) ([]*models.Ticket, error) {
-	startTime := time.Now()
-	
-	if !validations.IsValidTicketStatus(status) {
-		return nil, fmt.Errorf("invalid ticket status: %s", status)
-	}
-
-	qb := query.NewQueryBuilder(`
-		SELECT id, public_id, category_id, transaction_id, event_id, 
-		       customer_id, user_id, code, status, seat_number, 
-		       qr_code_url, price, used_at, transferred_from_ticket_id, 
-		       created_at, updated_at
-		FROM tickets 
-	`).Where("status = ?", status).
-		OrderBy("created_at", true)
-
-	queryStr, args := qb.Build()
-
-	rows, err := r.db.Query(ctx, queryStr, args...)
-	if err != nil {
-		r.logger.DatabaseLogger("SELECT", "tickets", time.Since(startTime), 0, err, map[string]interface{}{
-			"status": status,
-		})
-		return nil, r.errHandler.WrapError(err, "ticket repository", "get tickets by status")
-	}
-	defer rows.Close()
-
-	tickets, err := r.ticketScan.ScanAllRows(rows, r.ticketScan.ScanTicket)
-	if err != nil {
-		r.logger.Error("Failed to scan tickets", err, map[string]interface{}{
-			"status": status,
-		})
-		return nil, err
-	}
-
-	r.logger.DatabaseLogger("SELECT", "tickets", time.Since(startTime), int64(len(tickets)), nil, map[string]interface{}{
-		"status": status,
-		"count": len(tickets),
-	})
-	
-	return tickets, nil
-}
-
-// GetTicketByCode obtiene un ticket por su código
-func (r *TicketRepository) GetTicketByCode(ctx context.Context, code string) (*models.Ticket, error) {
-	startTime := time.Now()
-	
-	if code == "" {
-		return nil, fmt.Errorf("ticket code is required")
-	}
+	defer tx.Rollback()
 
 	query := `
-		SELECT id, public_id, category_id, transaction_id, event_id, 
-		       customer_id, user_id, code, status, seat_number, 
-		       qr_code_url, price, used_at, transferred_from_ticket_id, 
-		       created_at, updated_at
-		FROM tickets 
-		WHERE code = $1
+		INSERT INTO ticketing.tickets (
+			public_uuid, ticket_type_id, event_id, customer_id, order_id,
+			code, secret_hash, qr_code_data, status, final_price, currency, tax_amount,
+			attendee_name, attendee_email, attendee_phone,
+			checked_in_at, checked_in_by, checkin_method, checkin_location,
+			reserved_at, reserved_by, reservation_expires_at,
+			transfer_token, transferred_from, transferred_at,
+			validation_count, last_validated_at,
+			sold_at, cancelled_at, refunded_at,
+			created_at, updated_at
+		) VALUES (
+			gen_random_uuid(), $1, $2, $3, $4,
+			$5, $6, $7, $8, $9, $10, $11,
+			$12, $13, $14, $15, $16, $17, $18,
+			$19, $20, $21, $22, $23, $24,
+			$25, $26, $27, $28, $29,
+			NOW(), NOW()
+		)
 	`
 
-	row := r.db.QueryRow(ctx, query, code)
-	ticket, err := r.ticketScan.ScanTicket(row)
-	
-	if err != nil {
-		if err.Error() == "ticket not found" {
-			r.logger.Debug("Ticket not found by code", map[string]interface{}{
-				"code": utils.SafeStringForLog(code),
-			})
-			return nil, err
+	for _, ticket := range tickets {
+		if err := ticket.Validate(); err != nil {
+			return err
 		}
-		
-		r.logger.DatabaseLogger("SELECT", "tickets", time.Since(startTime), 0, err, map[string]interface{}{
-			"code": utils.SafeStringForLog(code),
-		})
-		
-		return nil, r.errHandler.WrapError(err, "ticket repository", "get ticket by code")
-	}
 
-	r.logger.DatabaseLogger("SELECT", "tickets", time.Since(startTime), 1, nil, map[string]interface{}{
-		"code": utils.SafeStringForLog(code),
-	})
-	
-	return ticket, nil
-}
-
-// GetTicketsByTransaction obtiene tickets por transaction_id
-func (r *TicketRepository) GetTicketsByTransaction(ctx context.Context, transactionID int64) ([]*models.Ticket, error) {
-	startTime := time.Now()
-	
-	qb := query.NewQueryBuilder(`
-		SELECT id, public_id, category_id, transaction_id, event_id, 
-		       customer_id, user_id, code, status, seat_number, 
-		       qr_code_url, price, used_at, transferred_from_ticket_id, 
-		       created_at, updated_at
-		FROM tickets 
-	`).Where("transaction_id = ?", transactionID).
-		OrderBy("created_at", true)
-
-	queryStr, args := qb.Build()
-
-	rows, err := r.db.Query(ctx, queryStr, args...)
-	if err != nil {
-		r.logger.DatabaseLogger("SELECT", "tickets", time.Since(startTime), 0, err, map[string]interface{}{
-			"transaction_id": transactionID,
-		})
-		return nil, r.errHandler.WrapError(err, "ticket repository", "get tickets by transaction")
-	}
-	defer rows.Close()
-
-	tickets, err := r.ticketScan.ScanAllRows(rows, r.ticketScan.ScanTicket)
-	if err != nil {
-		r.logger.Error("Failed to scan tickets", err, map[string]interface{}{
-			"transaction_id": transactionID,
-		})
-		return nil, err
-	}
-
-	r.logger.DatabaseLogger("SELECT", "tickets", time.Since(startTime), int64(len(tickets)), nil, map[string]interface{}{
-		"transaction_id": transactionID,
-		"count": len(tickets),
-	})
-	
-	return tickets, nil
-}
-
-// =============================================================================
-// MÉTODOS PRIVADOS CON HELPERS
-// =============================================================================
-
-// validateEventAndCategory valida que el evento y categoría existan
-func (r *TicketRepository) validateEventAndCategory(ctx context.Context, eventPublicID, categoryPublicID string) error {
-	// Validar que el evento existe y está activo
-	var eventExists bool
-	err := r.db.QueryRow(ctx,
-		"SELECT EXISTS(SELECT 1 FROM events WHERE public_id = $1 AND is_active = true AND is_published = true)",
-		eventPublicID).Scan(&eventExists)
-
-	if err != nil {
-		r.logger.Error("Error validating event", err, map[string]interface{}{
-			"event_id": eventPublicID,
-		})
-		return r.errHandler.WrapError(err, "ticket repository", "validate event")
-	}
-	if !eventExists {
-		return fmt.Errorf("event not found or inactive: %s", eventPublicID)
-	}
-
-	// Validar que la categoría existe y está activa
-	var categoryExists bool
-	err = r.db.QueryRow(ctx,
-		"SELECT EXISTS(SELECT 1 FROM categories WHERE public_id = $1 AND is_active = true)",
-		categoryPublicID).Scan(&categoryExists)
-
-	if err != nil {
-		r.logger.Error("Error validating category", err, map[string]interface{}{
-			"category_id": categoryPublicID,
-		})
-		return r.errHandler.WrapError(err, "ticket repository", "validate category")
-	}
-	if !categoryExists {
-		return fmt.Errorf("category not found or inactive: %s", categoryPublicID)
-	}
-
-	// Validar que la categoría pertenece al evento
-	var validCategory bool
-	err = r.db.QueryRow(ctx,
-		`SELECT EXISTS(
-			SELECT 1 FROM categories c 
-			INNER JOIN events e ON c.event_id = e.id 
-			WHERE c.public_id = $1 AND e.public_id = $2
-		)`, categoryPublicID, eventPublicID).Scan(&validCategory)
-
-	if err != nil {
-		r.logger.Error("Error validating category-event relationship", err, map[string]interface{}{
-			"event_id": eventPublicID,
-			"category_id": categoryPublicID,
-		})
-		return r.errHandler.WrapError(err, "ticket repository", "validate category-event relationship")
-	}
-	if !validCategory {
-		return fmt.Errorf("category %s does not belong to event %s", categoryPublicID, eventPublicID)
-	}
-
-	return nil
-}
-
-// checkCategoryAvailability verifica si hay tickets disponibles en la categoría
-func (r *TicketRepository) checkCategoryAvailability(ctx context.Context, categoryID int64) error {
-	var available, sold int32
-	err := r.db.QueryRow(ctx,
-		"SELECT quantity_available, quantity_sold FROM categories WHERE id = $1",
-		categoryID).Scan(&available, &sold)
-
-	if err != nil {
-		r.logger.Error("Error checking category availability", err, map[string]interface{}{
-			"category_id": categoryID,
-		})
-		return r.errHandler.WrapError(err, "ticket repository", "check category availability")
-	}
-
-	if available <= sold {
-		return fmt.Errorf("no tickets available in this category")
-	}
-
-	return nil
-}
-
-// getCategoryPrice obtiene el precio de una categoría
-func (r *TicketRepository) getCategoryPrice(ctx context.Context, categoryID int64) (float64, error) {
-	var price float64
-	err := r.db.QueryRow(ctx,
-		"SELECT price FROM categories WHERE id = $1",
-		categoryID).Scan(&price)
-
-	if err != nil {
-		r.logger.Error("Error getting category price", err, map[string]interface{}{
-			"category_id": categoryID,
-		})
-		return 0, r.errHandler.WrapError(err, "ticket repository", "get category price")
-	}
-
-	return price, nil
-}
-
-// generateUniqueTicketCode genera un código único para el ticket usando utils
-func (r *TicketRepository) generateUniqueTicketCode(ctx context.Context, tx pgx.Tx, eventID, customerID string, index int) (string, error) {
-	maxAttempts := 5
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		code := r.generateTicketCode(eventID, customerID, index+attempt)
-
-		// Verificar si el código ya existe
-		var exists bool
-		err := tx.QueryRow(ctx,
-			"SELECT EXISTS(SELECT 1 FROM tickets WHERE code = $1)",
-			code).Scan(&exists)
-
+		_, err = tx.ExecContext(
+			ctx, query,
+			ticket.TicketTypeID, ticket.EventID, ticket.CustomerID, ticket.OrderID,
+			ticket.Code, ticket.SecretHash, ticket.QRCodeData, ticket.Status,
+			ticket.FinalPrice, ticket.Currency, ticket.TaxAmount,
+			ticket.AttendeeName, ticket.AttendeeEmail, ticket.AttendeePhone,
+			ticket.CheckedInAt, ticket.CheckedInBy, ticket.CheckinMethod, ticket.CheckinLocation,
+			ticket.ReservedAt, ticket.ReservedBy, ticket.ReservationExpiresAt,
+			ticket.TransferToken, ticket.TransferredFrom, ticket.TransferredAt,
+			ticket.ValidationCount, ticket.LastValidatedAt,
+			ticket.SoldAt, ticket.CancelledAt, ticket.RefundedAt,
+		)
 		if err != nil {
-			return "", r.errHandler.WrapError(err, "ticket repository", "check ticket code uniqueness")
-		}
-
-		if !exists {
-			return code, nil
+			return r.handleError(err, "failed to create ticket in batch")
 		}
 	}
 
-	return "", fmt.Errorf("failed to generate unique ticket code after %d attempts", maxAttempts)
+	return tx.Commit()
 }
 
-// Helper functions para mapear public_ids a internal_ids
-func (r *TicketRepository) getCustomerIDByPublicID(ctx context.Context, customerPublicID string) (int64, error) {
-	var customerID int64
-	err := r.db.QueryRow(ctx,
-		"SELECT id FROM customers WHERE public_id = $1",
-		customerPublicID).Scan(&customerID)
+// Update actualiza un ticket existente
+func (r *TicketRepository) Update(ctx context.Context, ticket *entities.Ticket) error {
+	// Verificar que existe
+	exists, err := r.Exists(ctx, ticket.ID)
 	if err != nil {
-		r.logger.Error("Customer not found", err, map[string]interface{}{
-			"customer_id": customerPublicID,
-		})
-		return 0, fmt.Errorf("customer not found with public_id: %s", customerPublicID)
+		return err
 	}
-	return customerID, nil
-}
+	if !exists {
+		return repository.ErrTicketNotFound
+	}
 
-func (r *TicketRepository) getCategoryIDByPublicID(ctx context.Context, categoryPublicID string) (int64, error) {
-	var categoryID int64
-	err := r.db.QueryRow(ctx,
-		"SELECT id FROM categories WHERE public_id = $1 AND is_active = true",
-		categoryPublicID).Scan(&categoryID)
+	query := `
+		UPDATE ticketing.tickets SET
+			ticket_type_id = $1,
+			event_id = $2,
+			customer_id = $3,
+			order_id = $4,
+			qr_code_data = $5,
+			status = $6,
+			final_price = $7,
+			currency = $8,
+			tax_amount = $9,
+			attendee_name = $10,
+			attendee_email = $11,
+			attendee_phone = $12,
+			checked_in_at = $13,
+			checked_in_by = $14,
+			checkin_method = $15,
+			checkin_location = $16,
+			reserved_at = $17,
+			reserved_by = $18,
+			reservation_expires_at = $19,
+			transfer_token = $20,
+			transferred_from = $21,
+			transferred_at = $22,
+			validation_count = $23,
+			last_validated_at = $24,
+			sold_at = $25,
+			cancelled_at = $26,
+			refunded_at = $27,
+			updated_at = NOW()
+		WHERE id = $28
+		RETURNING updated_at
+	`
+
+	err = r.db.QueryRowContext(
+		ctx, query,
+		ticket.TicketTypeID, ticket.EventID, ticket.CustomerID, ticket.OrderID,
+		ticket.QRCodeData, ticket.Status, ticket.FinalPrice, ticket.Currency, ticket.TaxAmount,
+		ticket.AttendeeName, ticket.AttendeeEmail, ticket.AttendeePhone,
+		ticket.CheckedInAt, ticket.CheckedInBy, ticket.CheckinMethod, ticket.CheckinLocation,
+		ticket.ReservedAt, ticket.ReservedBy, ticket.ReservationExpiresAt,
+		ticket.TransferToken, ticket.TransferredFrom, ticket.TransferredAt,
+		ticket.ValidationCount, ticket.LastValidatedAt,
+		ticket.SoldAt, ticket.CancelledAt, ticket.RefundedAt,
+		ticket.ID,
+	).Scan(&ticket.UpdatedAt)
+
 	if err != nil {
-		r.logger.Error("Category not found", err, map[string]interface{}{
-			"category_id": categoryPublicID,
-		})
-		return 0, fmt.Errorf("category not found with public_id: %s", categoryPublicID)
+		return r.handleError(err, "failed to update ticket")
 	}
-	return categoryID, nil
+
+	return nil
 }
 
-func (r *TicketRepository) getEventIDByPublicID(ctx context.Context, eventPublicID string) (int64, error) {
-	var eventID int64
-	err := r.db.QueryRow(ctx,
-		"SELECT id FROM events WHERE public_id = $1 AND is_active = true AND is_published = true",
-		eventPublicID).Scan(&eventID)
+// Delete elimina un ticket (usar con precaución, mejor usar Cancel)
+func (r *TicketRepository) Delete(ctx context.Context, id int64) error {
+	result, err := r.db.ExecContext(ctx, `DELETE FROM ticketing.tickets WHERE id = $1`, id)
 	if err != nil {
-		r.logger.Error("Event not found", err, map[string]interface{}{
-			"event_id": eventPublicID,
-		})
-		return 0, fmt.Errorf("event not found with public_id: %s", eventPublicID)
+		return r.handleError(err, "failed to delete ticket")
 	}
-	return eventID, nil
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return repository.ErrTicketNotFound
+	}
+
+	return nil
 }
 
-func (r *TicketRepository) getUserIDByPublicID(ctx context.Context, userPublicID string) (int64, error) {
-	var userID int64
-	err := r.db.QueryRow(ctx,
-		"SELECT id FROM users WHERE public_id = $1 AND is_active = true",
-		userPublicID).Scan(&userID)
+// Exists verifica si existe un ticket con el ID dado
+func (r *TicketRepository) Exists(ctx context.Context, id int64) (bool, error) {
+	var exists bool
+	err := r.db.GetContext(ctx, &exists, `SELECT EXISTS(SELECT 1 FROM ticketing.tickets WHERE id = $1)`, id)
 	if err != nil {
-		r.logger.Error("User not found", err, map[string]interface{}{
-			"user_id": userPublicID,
-		})
-		return 0, fmt.Errorf("user not found with public_id: %s", userPublicID)
+		return false, r.handleError(err, "failed to check ticket existence")
 	}
-	return userID, nil
+	return exists, nil
 }
 
-// Helper functions de validación
-func (r *TicketRepository) isValidTicketStatus(status string) bool {
-	return validations.IsValidTicketStatus(status)
-}
-
-func (r *TicketRepository) isValidStatusTransition(from, to string) bool {
-	if transitions, exists := validStatusTransitions[from]; exists {
-		return transitions[to]
+// ExistsByCode verifica si existe un ticket con el código dado
+func (r *TicketRepository) ExistsByCode(ctx context.Context, code string) (bool, error) {
+	var exists bool
+	err := r.db.GetContext(ctx, &exists, `SELECT EXISTS(SELECT 1 FROM ticketing.tickets WHERE code = $1)`, code)
+	if err != nil {
+		return false, r.handleError(err, "failed to check ticket code existence")
 	}
-	return false
+	return exists, nil
 }
 
-// generateTicketCode genera un código de ticket único usando utils
-func (r *TicketRepository) generateTicketCode(eventID, customerID string, index int) string {
-	timestamp := time.Now().UnixNano()
-	shortTimestamp := fmt.Sprintf("%d", timestamp)[:8]
-	// Usar solo los primeros 8 caracteres de los UUIDs para mantener el código legible
-	shortEventID := eventID[:8]
-	shortCustomerID := customerID[:8]
-	return fmt.Sprintf("TKT-%s-%s-%s-%d", shortEventID, shortCustomerID, shortTimestamp, index)
+// UpdateStatus actualiza el estado de un ticket
+func (r *TicketRepository) UpdateStatus(ctx context.Context, ticketID int64, status enums.TicketStatus) error {
+	// Verificar transición válida
+	var currentStatus string
+	err := r.db.GetContext(ctx, &currentStatus, `SELECT status FROM ticketing.tickets WHERE id = $1`, ticketID)
+	if err != nil {
+		return r.handleError(err, "failed to get current status")
+	}
+
+	// CORREGIDO: Usar CanTransitionTicket en lugar de CanTransition
+	if !enums.CanTransitionTicket(enums.TicketStatus(currentStatus), status) {
+		return repository.ErrInvalidTicketStatus
+	}
+
+	query := `
+		UPDATE ticketing.tickets 
+		SET status = $1, updated_at = NOW() 
+		WHERE id = $2
+	`
+	result, err := r.db.ExecContext(ctx, query, string(status), ticketID)
+	if err != nil {
+		return r.handleError(err, "failed to update ticket status")
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return repository.ErrTicketNotFound
+	}
+
+	return nil
+}
+
+// CheckIn marca un ticket como usado (check-in)
+func (r *TicketRepository) CheckIn(ctx context.Context, ticketID int64, method, location string, checkedBy *int64) error {
+	now := time.Now()
+	query := `
+		UPDATE ticketing.tickets 
+		SET status = 'checked_in', 
+			checked_in_at = $1, 
+			checked_in_by = $2, 
+			checkin_method = $3, 
+			checkin_location = $4,
+			validation_count = validation_count + 1,
+			last_validated_at = $1,
+			updated_at = $1
+		WHERE id = $5 AND status = 'sold'
+	`
+	result, err := r.db.ExecContext(ctx, query, now, checkedBy, method, location, ticketID)
+	if err != nil {
+		return r.handleError(err, "failed to check in ticket")
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return repository.ErrTicketNotAvailable
+	}
+
+	return nil
+}
+
+// Reserve reserva un ticket
+func (r *TicketRepository) Reserve(ctx context.Context, ticketID int64, reservedBy int64, expiresAt time.Time) error {
+	now := time.Now()
+	query := `
+		UPDATE ticketing.tickets 
+		SET status = 'reserved', 
+			reserved_at = $1, 
+			reserved_by = $2, 
+			reservation_expires_at = $3,
+			updated_at = $1
+		WHERE id = $4 AND status = 'available'
+	`
+	result, err := r.db.ExecContext(ctx, query, now, reservedBy, expiresAt, ticketID)
+	if err != nil {
+		return r.handleError(err, "failed to reserve ticket")
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return repository.ErrTicketNotAvailable
+	}
+
+	return nil
+}
+
+// ReleaseReservation libera una reserva
+func (r *TicketRepository) ReleaseReservation(ctx context.Context, ticketID int64) error {
+	query := `
+		UPDATE ticketing.tickets 
+		SET status = 'available', 
+			reserved_at = NULL, 
+			reserved_by = NULL, 
+			reservation_expires_at = NULL,
+			updated_at = NOW()
+		WHERE id = $1 AND status = 'reserved'
+	`
+	result, err := r.db.ExecContext(ctx, query, ticketID)
+	if err != nil {
+		return r.handleError(err, "failed to release reservation")
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return repository.ErrTicketNotAvailable
+	}
+
+	return nil
+}
+
+// Transfer transfiere un ticket a otro cliente
+func (r *TicketRepository) Transfer(ctx context.Context, ticketID int64, toCustomerID int64, transferToken string) error {
+	// Obtener el customer_id actual
+	var fromCustomerID int64
+	err := r.db.GetContext(ctx, &fromCustomerID, `SELECT customer_id FROM ticketing.tickets WHERE id = $1`, ticketID)
+	if err != nil {
+		return r.handleError(err, "failed to get current customer")
+	}
+
+	query := `
+		UPDATE ticketing.tickets 
+		SET customer_id = $1, 
+			transferred_from = $2, 
+			transferred_at = NOW(),
+			transfer_token = $3,
+			status = 'sold',
+			updated_at = NOW()
+		WHERE id = $4 AND status = 'sold'
+	`
+	result, err := r.db.ExecContext(ctx, query, toCustomerID, fromCustomerID, transferToken, ticketID)
+	if err != nil {
+		return r.handleError(err, "failed to transfer ticket")
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return repository.ErrTicketNotAvailable
+	}
+
+	return nil
+}
+
+// Cancel cancela un ticket
+func (r *TicketRepository) Cancel(ctx context.Context, ticketID int64) error {
+	now := time.Now()
+	query := `
+		UPDATE ticketing.tickets 
+		SET status = 'cancelled', 
+			cancelled_at = $1,
+			updated_at = $1
+		WHERE id = $2 AND status IN ('available', 'reserved', 'sold')
+	`
+	result, err := r.db.ExecContext(ctx, query, now, ticketID)
+	if err != nil {
+		return r.handleError(err, "failed to cancel ticket")
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return repository.ErrTicketNotAvailable
+	}
+
+	return nil
+}
+
+// Refund reembolsa un ticket
+func (r *TicketRepository) Refund(ctx context.Context, ticketID int64) error {
+	now := time.Now()
+	query := `
+		UPDATE ticketing.tickets 
+		SET status = 'refunded', 
+			refunded_at = $1,
+			updated_at = $1
+		WHERE id = $2 AND status = 'sold'
+	`
+	result, err := r.db.ExecContext(ctx, query, now, ticketID)
+	if err != nil {
+		return r.handleError(err, "failed to refund ticket")
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return repository.ErrTicketNotAvailable
+	}
+
+	return nil
+}
+
+// ValidateTicket valida un ticket por código y hash secreto
+func (r *TicketRepository) ValidateTicket(ctx context.Context, code, secretHash string) (*entities.Ticket, error) {
+	query := `
+		SELECT 
+			id, public_uuid, ticket_type_id, event_id, customer_id, order_id,
+			code, secret_hash, qr_code_data, status, final_price, currency, tax_amount,
+			attendee_name, attendee_email, attendee_phone,
+			checked_in_at, checked_in_by, checkin_method, checkin_location,
+			reserved_at, reserved_by, reservation_expires_at,
+			transfer_token, transferred_from, transferred_at,
+			validation_count, last_validated_at,
+			sold_at, cancelled_at, refunded_at,
+			created_at, updated_at
+		FROM ticketing.tickets
+		WHERE code = $1 AND secret_hash = $2
+	`
+
+	var ticket entities.Ticket
+	err := r.db.GetContext(ctx, &ticket, query, code, secretHash)
+	if err != nil {
+		return nil, r.handleError(err, "failed to validate ticket")
+	}
+
+	return &ticket, nil
+}
+
+// GetEventStats obtiene estadísticas de tickets para un evento
+func (r *TicketRepository) GetEventStats(ctx context.Context, eventID int64) (*repository.TicketStats, error) {
+	query := `
+		SELECT 
+			COUNT(*) as total_tickets,
+			COUNT(CASE WHEN status = 'available' THEN 1 END) as available_tickets,
+			COUNT(CASE WHEN status = 'reserved' THEN 1 END) as reserved_tickets,
+			COUNT(CASE WHEN status = 'sold' THEN 1 END) as sold_tickets,
+			COUNT(CASE WHEN status = 'checked_in' THEN 1 END) as checked_in_tickets,
+			COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled_tickets,
+			COUNT(CASE WHEN status = 'refunded' THEN 1 END) as refunded_tickets,
+			COALESCE(SUM(CASE WHEN status IN ('sold', 'checked_in') THEN final_price ELSE 0 END), 0) as total_revenue,
+			COALESCE(AVG(CASE WHEN status IN ('sold', 'checked_in') THEN final_price END), 0) as avg_ticket_price
+		FROM ticketing.tickets
+		WHERE event_id = $1
+	`
+
+	var stats repository.TicketStats
+	err := r.db.GetContext(ctx, &stats, query, eventID)
+	if err != nil {
+		return nil, r.handleError(err, "failed to get event stats")
+	}
+
+	return &stats, nil
+}
+
+// GetReservedExpired obtiene tickets con reservas expiradas
+func (r *TicketRepository) GetReservedExpired(ctx context.Context) ([]*entities.Ticket, error) {
+	query := `
+		SELECT 
+			id, public_uuid, ticket_type_id, event_id, customer_id, order_id,
+			code, secret_hash, qr_code_data, status, final_price, currency, tax_amount,
+			attendee_name, attendee_email, attendee_phone,
+			checked_in_at, checked_in_by, checkin_method, checkin_location,
+			reserved_at, reserved_by, reservation_expires_at,
+			transfer_token, transferred_from, transferred_at,
+			validation_count, last_validated_at,
+			sold_at, cancelled_at, refunded_at,
+			created_at, updated_at
+		FROM ticketing.tickets
+		WHERE status = 'reserved' AND reservation_expires_at < NOW()
+	`
+
+	var tickets []*entities.Ticket
+	err := r.db.SelectContext(ctx, &tickets, query)
+	if err != nil {
+		return nil, r.handleError(err, "failed to get expired reservations")
+	}
+
+	return tickets, nil
 }

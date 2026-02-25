@@ -49,29 +49,33 @@ osmi-server/
 │   │   │   │   ├── venue_request.go         # Solicitudes de lugares/recintos
 │   │   │   │   └── webhook_request.go       # Solicitudes de webhooks
 │   │   │   └── response/                    # Response DTOs (salida)
-│   │   │       ├── api_call_response.go     # Respuestas de llamadas API
-│   │   │       ├── audit_response.go        # Respuestas de auditoría
-│   │   │       ├── category_response.go     # Respuestas de categorías
-│   │   │       ├── country_config_response.go # Respuestas de configuración por país
-│   │   │       ├── customer_response.go     # Respuestas de clientes
-│   │   │       ├── event_response.go        # Respuestas de eventos
-│   │   │       ├── invoice_response.go      # Respuestas de facturas
-│   │   │       ├── notification_response.go # Respuestas de notificaciones
-│   │   │       ├── order_response.go        # Respuestas de órdenes
-│   │   │       ├── organizer_response.go    # Respuestas de organizadores
-│   │   │       ├── payment_response.go      # Respuestas de pagos
-│   │   │       ├── refund_response.go       # Respuestas de reembolsos
-│   │   │       ├── ticket_response.go       # Respuestas de tickets
-│   │   │       ├── ticket_type_response.go  # Respuestas de tipos de ticket
-│   │   │       ├── user_response.go         # Respuestas de usuarios
-│   │   │       ├── venue_response.go        # Respuestas de lugares/recintos
-│   │   │       └── webhook_response.go      # Respuestas de webhooks
+│   │   │   │   ├── api_call_response.go     # Respuestas de llamadas API
+│   │   │   │   ├── audit_response.go        # Respuestas de auditoría
+│   │   │   │   ├── category_response.go     # Respuestas de categorías
+│   │   │   │   ├── country_config_response.go # Respuestas de configuración por país
+│   │   │   │   ├── customer_response.go     # Respuestas de clientes
+│   │   │   │   ├── event_response.go        # Respuestas de eventos
+│   │   │   │   ├── invoice_response.go      # Respuestas de facturas
+│   │   │   │   ├── notification_response.go # Respuestas de notificaciones
+│   │   │   │   ├── order_response.go        # Respuestas de órdenes
+│   │   │   │   ├── organizer_response.go    # Respuestas de organizadores
+│   │   │   │   ├── payment_response.go      # Respuestas de pagos
+│   │   │   │   ├── refund_response.go       # Respuestas de reembolsos
+│   │   │   │   ├── ticket_response.go       # Respuestas de tickets
+│   │   │   │   ├── ticket_type_response.go  # Respuestas de tipos de ticket
+│   │   │   │   ├── user_response.go         # Respuestas de usuarios
+│   │   │   │   ├── venue_response.go        # Respuestas de lugares/recintos
+│   │   │   │   └── webhook_response.go      # Respuestas de webhooks
+│   │   │   └── dto.go/                      #
 │   │   ├── grpc/                            # Servidor y configuración gRPC
 │   │   │   ├── interceptors/                # Interceptores/middleware gRPC
 │   │   │   │   ├── auth_interceptor.go      # Interceptor de autenticación JWT
 │   │   │   │   ├── logging_interceptor.go   # Interceptor de logging de peticiones
 │   │   │   │   └── validation_interceptor.go # Interceptor de validación de datos
+│   │   │   └── adapter.go                   # 
 │   │   │   └── server.go                    # Configuración e inicialización del servidor gRPC
+│   │   └── helpers/                         #
+│   │   │   └── helpers.go                   # 
 │   │   └── http/                            # Servidor y configuración HTTP REST
 │   │       ├── middleware/                  # Middleware HTTP
 │   │       │   ├── auth_middleware.go       # Middleware de autenticación HTTP
@@ -82,7 +86,7 @@ osmi-server/
 │   │       │   └── ticket_routes.go         # Rutas para gestión de tickets
 │   │       │   └── router.go
 │   │       └── server.go                    # Configuración e inicialización del servidor HTTP
-│   ├── application/                         # Capa de aplicación (casos de uso)
+│   ├── application/                         # LÓGICA DE NEGOCIO (usa interfaces)
 │   │   ├── handlers/                       # Manejadores de peticiones
 │   │   │   ├── grpc/                       # Handlers para gRPC
 │   │   │   │   ├── customer_handler.go      # Handler de clientes (gRPC)
@@ -102,18 +106,11 @@ osmi-server/
 │   │       └── user_service.go              # Servicio de gestión de usuarios
 │   ├── config/                             # Configuración interna de la aplicación
 │   │   ├── config.go                       # Configuración principal de la aplicación
-│   │   ├── database.go                     # Configuración específica de base de datos
 │   │   └── environment.go                  # Manejo y validación de variables de entorno
 │   ├── database/                           # Acceso y gestión de base de datos
 │   │   ├── connection.go                   # Conexión y pool de conexiones a PostgreSQL
-│   │   ├── migrations/                     # Migraciones de esquema de base de datos
-│   │   │   ├── 001_initial_schema.sql     # Esquema inicial de la base de datos
-│   │   │   └── 002_add_audit_tables.sql   # Tablas de auditoría y logs
-│   │   └── seeds/                         # Datos iniciales (seeds)
-│   │       ├── 001_initial_data.sql       # Datos iniciales para desarrollo
-│   │       └── 002_test_data.sql          # Datos de prueba para testing
 │   ├── domain/                             # Dominio del negocio (DDD)
-│   │   ├── entities/                      # Entidades de dominio (agregados)
+│   │   ├── entities/                      # Entidades de dominio / Entidades de negocio
 │   │   │   ├── api_call.go                # Entidad: Llamadas API de integración
 │   │   │   ├── audit.go                   # Entidad: Registros de auditoría del sistema
 │   │   │   ├── category.go                # Entidad: Categorías de eventos
@@ -283,19 +280,23 @@ osmi-server/
 │               ├── event_repository_test.go
 │               ├── ticket_repository_test.go
 │               └── user_repository_test.go
-├── Dockerfile                             # Definición de la imagen Docker
 ├── .dockerignore                          # Archivos a ignorar en builds Docker
 ├── .env                                   # Variables de entorno para desarrollo local
 ├── .env.development                       # Variables de entorno para entorno de desarrollo
 ├── .env.example                           # Plantilla de ejemplo para variables de entorno
+├── .env.locaL                             #
 ├── .env.production                        # Variables de entorno para entorno de producción
+├── .env.staging                           # 
 ├── .gitignore                             # Archivos a ignorar en control de versiones Git
 ├── CHANGELOG.md                           # Historial de cambios del proyecto
+├── Dockerfile                             # Definición de la imagen Docker
+├── fix_imports.sh                         #
+├── fix-imports.sh                         #
+├── fix-packages.sh                        #
 ├── go.mod                                 # Definición de módulo Go y dependencias
-├── go.sum                                 # Checksums de dependencias Go para seguridad
 ├── LICENSE                                # Licencia del software (MIT, Apache, etc.)
-├── Makefile                               # Automatización de tareas comunes (build, test, run)
-└── README.md                              # Documentación principal del proyecto
+├── README.md                              # Documentación principal del proyecto
+└── test_apis.sh                           #
 ```
 
 # Ejecución local

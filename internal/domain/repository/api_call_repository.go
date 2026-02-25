@@ -10,20 +10,20 @@ import (
 // APICallRepository define operaciones para llamadas API de integración
 type APICallRepository interface {
 	// Registro
-	LogAPICall(ctx context.Context, call *entities.APICall) error
+	LogAPICall(ctx context.Context, call *entities.ApiCall) error
 
 	// Búsquedas
-	List(ctx context.Context, filter dto.APICallFilter, pagination dto.Pagination) ([]*entities.APICall, int64, error)
-	FindByProvider(ctx context.Context, provider string, pagination dto.Pagination) ([]*entities.APICall, int64, error)
-	FindByEndpoint(ctx context.Context, endpoint string, pagination dto.Pagination) ([]*entities.APICall, int64, error)
-	FindByStatus(ctx context.Context, statusCode int, pagination dto.Pagination) ([]*entities.APICall, int64, error)
-	FindByUser(ctx context.Context, userID int64, pagination dto.Pagination) ([]*entities.APICall, int64, error)
-	FindFailedCalls(ctx context.Context, hours int) ([]*entities.APICall, error)
-	FindSlowCalls(ctx context.Context, thresholdMs int, pagination dto.Pagination) ([]*entities.APICall, int64, error)
+	List(ctx context.Context, filter dto.APICallFilter, pagination dto.Pagination) ([]*entities.ApiCall, int64, error)
+	FindByProvider(ctx context.Context, provider string, pagination dto.Pagination) ([]*entities.ApiCall, int64, error)
+	FindByEndpoint(ctx context.Context, endpoint string, pagination dto.Pagination) ([]*entities.ApiCall, int64, error)
+	FindByStatus(ctx context.Context, statusCode int, pagination dto.Pagination) ([]*entities.ApiCall, int64, error)
+	FindByUser(ctx context.Context, userID int64, pagination dto.Pagination) ([]*entities.ApiCall, int64, error)
+	FindFailedCalls(ctx context.Context, hours int) ([]*entities.ApiCall, error)
+	FindSlowCalls(ctx context.Context, thresholdMs int, pagination dto.Pagination) ([]*entities.ApiCall, int64, error)
 
 	// Consultas específicas
-	GetLastCallForProvider(ctx context.Context, provider, endpoint string) (*entities.APICall, error)
-	GetCallsInPeriod(ctx context.Context, provider, endpoint string, startDate, endDate string) ([]*entities.APICall, error)
+	GetLastCallForProvider(ctx context.Context, provider, endpoint string) (*entities.ApiCall, error)
+	GetCallsInPeriod(ctx context.Context, provider, endpoint string, startDate, endDate string) ([]*entities.ApiCall, error)
 	GetRetryStatistics(ctx context.Context, provider, endpoint string) (*dto.RetryStats, error)
 
 	// Limpieza

@@ -1,12 +1,12 @@
 package entities
 
 import (
-	"encoding/json"
 	"errors"
-	"strings"
 	"time"
 )
 
+// Notification representa un mensaje de notificación
+// Mapea exactamente la tabla notifications.messages
 type Notification struct {
 	ID         int64  `json:"id" db:"id"`
 	TemplateID *int64 `json:"template_id,omitempty" db:"template_id"`
@@ -23,26 +23,30 @@ type Notification struct {
 	Channel string `json:"channel" db:"channel"`
 	Status  string `json:"status" db:"status"`
 
-	Attempts      int32      `json:"attempts" db:"attempts"`
-	MaxAttempts   int32      `json:"max_attempts" db:"max_attempts"`
+	Attempts      int        `json:"attempts" db:"attempts"`
+	MaxAttempts   int        `json:"max_attempts" db:"max_attempts"`
 	NextRetryAt   *time.Time `json:"next_retry_at,omitempty" db:"next_retry_at"`
-	RetryDelay    int32      `json:"retry_delay" db:"retry_delay"`
+	RetryDelay    int        `json:"retry_delay" db:"retry_delay"`
 	BackoffFactor float64    `json:"backoff_factor" db:"backoff_factor"`
 	LastError     *string    `json:"last_error,omitempty" db:"last_error"`
 	ErrorCode     *string    `json:"error_code,omitempty" db:"error_code"`
-	ErrorHistory  *string    `json:"error_history,omitempty" db:"error_history"`
+	// CORREGIDO: error_history es JSONB
+	ErrorHistory *[]map[string]interface{} `json:"error_history,omitempty" db:"error_history,type:jsonb"`
 
 	ProviderMessageID *string `json:"provider_message_id,omitempty" db:"provider_message_id"`
-	ProviderResponse  *string `json:"provider_response,omitempty" db:"provider_response"`
+	// CORREGIDO: provider_response es JSONB
+	ProviderResponse *map[string]interface{} `json:"provider_response,omitempty" db:"provider_response,type:jsonb"`
 
-	ContextData *string `json:"context_data,omitempty" db:"context_data"`
+	// CORREGIDO: context_data es JSONB
+	ContextData *map[string]interface{} `json:"context_data,omitempty" db:"context_data,type:jsonb"`
 
 	ScheduledFor time.Time  `json:"scheduled_for" db:"scheduled_for"`
 	SentAt       *time.Time `json:"sent_at,omitempty" db:"sent_at"`
 	DeliveredAt  *time.Time `json:"delivered_at,omitempty" db:"delivered_at"`
 
-	OpenCount  int32 `json:"open_count" db:"open_count"`
-	ClickCount int32 `json:"click_count" db:"click_count"`
+	// CORREGIDO: Usamos int en lugar de int32 para INTEGER en PostgreSQL
+	OpenCount  int `json:"open_count" db:"open_count"`
+	ClickCount int `json:"click_count" db:"click_count"`
 
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
@@ -76,7 +80,7 @@ func (n *Notification) ScheduleRetry(errorMsg string, errorCode string) error {
 
 	// Cálculo de backoff exponencial
 	delay := time.Duration(n.RetryDelay) * time.Second
-	for i := 0; i < int(n.Attempts)-1; i++ {
+	for i := 0; i < n.Attempts-1; i++ {
 		delay = time.Duration(float64(delay) * n.BackoffFactor)
 		if delay > 24*time.Hour {
 			delay = 24 * time.Hour
@@ -96,12 +100,12 @@ func (n *Notification) ScheduleRetry(errorMsg string, errorCode string) error {
 }
 
 // MarkAsSent marca como enviado exitosamente
-func (n *Notification) MarkAsSent(providerID string, response *string) {
+func (n *Notification) MarkAsSent(providerID string, response map[string]interface{}) {
 	now := time.Now()
 	n.Status = "sent"
 	n.SentAt = &now
 	n.ProviderMessageID = &providerID
-	n.ProviderResponse = response
+	n.ProviderResponse = &response
 	n.LastError = nil
 	n.ErrorCode = nil
 	n.NextRetryAt = nil
@@ -138,28 +142,20 @@ func (n *Notification) IsImmediate() bool {
 }
 
 // GetContext obtiene el contexto como map
-func (n *Notification) GetContext() (map[string]interface{}, error) {
-	if n.ContextData == nil || strings.TrimSpace(*n.ContextData) == "" {
-		return make(map[string]interface{}), nil
+func (n *Notification) GetContext() map[string]interface{} {
+	if n.ContextData == nil {
+		return make(map[string]interface{})
 	}
-	var context map[string]interface{}
-	err := json.Unmarshal([]byte(*n.ContextData), &context)
-	return context, err
+	return *n.ContextData
 }
 
 // SetContext establece el contexto desde un map
-func (n *Notification) SetContext(context map[string]interface{}) error {
+func (n *Notification) SetContext(context map[string]interface{}) {
 	if context == nil {
 		n.ContextData = nil
-		return nil
+		return
 	}
-	data, err := json.Marshal(context)
-	if err != nil {
-		return err
-	}
-	str := string(data)
-	n.ContextData = &str
-	return nil
+	n.ContextData = &context
 }
 
 // Validate valida los campos requeridos según el canal
@@ -198,15 +194,15 @@ func (n *Notification) Validate() error {
 	}
 
 	if n.MaxAttempts == 0 {
-		n.MaxAttempts = 3
+		n.MaxAttempts = 5 // Valor por defecto en la BD
 	}
 
 	if n.RetryDelay == 0 {
-		n.RetryDelay = 60 // 60 segundos
+		n.RetryDelay = 300 // 300 segundos (5 minutos) valor por defecto en la BD
 	}
 
 	if n.BackoffFactor == 0 {
-		n.BackoffFactor = 2.0
+		n.BackoffFactor = 1.5 // Valor por defecto en la BD
 	}
 
 	return nil
@@ -215,7 +211,7 @@ func (n *Notification) Validate() error {
 // addErrorToHistory añade un error al historial
 func (n *Notification) addErrorToHistory(errorMsg string, errorCode string) {
 	errorEntry := map[string]interface{}{
-		"timestamp": time.Now().Format(time.RFC3339),
+		"timestamp": time.Now(),
 		"attempt":   n.Attempts,
 		"error":     errorMsg,
 		"code":      errorCode,
@@ -224,15 +220,11 @@ func (n *Notification) addErrorToHistory(errorMsg string, errorCode string) {
 	var history []map[string]interface{}
 
 	if n.ErrorHistory != nil {
-		json.Unmarshal([]byte(*n.ErrorHistory), &history)
+		history = *n.ErrorHistory
 	}
 
 	history = append(history, errorEntry)
-
-	if data, err := json.Marshal(history); err == nil {
-		str := string(data)
-		n.ErrorHistory = &str
-	}
+	n.ErrorHistory = &history
 }
 
 // IncrementOpenCount incrementa el contador de aperturas
@@ -257,4 +249,22 @@ func (n *Notification) GetRetryDelaySeconds() int64 {
 		return 0
 	}
 	return int64(n.NextRetryAt.Sub(now).Seconds())
+}
+
+// GetLastErrorDetails obtiene los detalles del último error
+func (n *Notification) GetLastErrorDetails() map[string]interface{} {
+	if n.ErrorHistory == nil || len(*n.ErrorHistory) == 0 {
+		return nil
+	}
+	history := *n.ErrorHistory
+	return history[len(history)-1]
+}
+
+// ResetForRetry reinicia el estado para un nuevo intento
+func (n *Notification) ResetForRetry() {
+	n.Status = "pending"
+	n.LastError = nil
+	n.ErrorCode = nil
+	n.NextRetryAt = nil
+	n.UpdatedAt = time.Now()
 }
