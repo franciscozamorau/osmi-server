@@ -28,19 +28,6 @@ type CategoryResponse struct {
 	UpdatedAt        time.Time      `json:"updated_at"`
 }
 
-// CategoryInfo representa información resumida de una categoría (para anidamiento)
-type CategoryInfo struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Slug        string  `json:"slug"`
-	Icon        *string `json:"icon,omitempty"`
-	ColorHex    string  `json:"color_hex"`
-	Level       int     `json:"level,omitempty"` // Añadido
-	TotalEvents int     `json:"total_events"`
-	IsActive    bool    `json:"is_active"`
-	IsFeatured  bool    `json:"is_featured"`
-}
-
 // CategoryListResponse representa una lista paginada de categorías
 type CategoryListResponse struct {
 	Categories []CategoryResponse `json:"categories"`
@@ -128,7 +115,6 @@ func (n *CategoryNode) ToCategoryInfo() CategoryInfo {
 		Slug:        n.Slug,
 		Icon:        n.Icon,
 		ColorHex:    n.ColorHex,
-		Level:       n.Level,
 		TotalEvents: n.TotalEvents,
 		IsActive:    n.IsActive,
 		IsFeatured:  n.IsFeatured,

@@ -1,7 +1,50 @@
+// internal/api/dto/response/payment_response.go
 package response
 
 import "time"
 
+// PaymentProviderInfo representa información del proveedor de pago
+type PaymentProviderInfo struct {
+	ID   string `json:"id"`
+	Code string `json:"code"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// PaymentError representa un error en el procesamiento de pago
+type PaymentError struct {
+	Attempt          int       `json:"attempt"`
+	Error            string    `json:"error"`
+	Code             string    `json:"code"`
+	Timestamp        time.Time `json:"timestamp"`
+	ProviderResponse *string   `json:"provider_response,omitempty"`
+}
+
+// PaymentMethodStats representa estadísticas por método de pago
+type PaymentMethodStats struct {
+	Method      string  `json:"method"`
+	Count       int     `json:"count"`
+	TotalAmount float64 `json:"total_amount"`
+	SuccessRate float64 `json:"success_rate"`
+}
+
+// PaymentSummary representa resumen de pagos
+type PaymentSummary struct {
+	TotalAmount       float64              `json:"total_amount"`
+	SuccessfulAmount  float64              `json:"successful_amount"`
+	FailedAmount      float64              `json:"failed_amount"`
+	PendingAmount     float64              `json:"pending_amount"`
+	TotalCount        int                  `json:"total_count"`
+	SuccessfulCount   int                  `json:"successful_count"`
+	FailedCount       int                  `json:"failed_count"`
+	PendingCount      int                  `json:"pending_count"`
+	AvgAmount         float64              `json:"avg_amount"`
+	SuccessRate       float64              `json:"success_rate"`
+	AvgProcessingTime float64              `json:"avg_processing_time_ms"`
+	TopPaymentMethods []PaymentMethodStats `json:"top_payment_methods"`
+}
+
+// PaymentResponse representa la respuesta completa de un pago
 type PaymentResponse struct {
 	ID                    string                 `json:"id"`
 	OrderID               string                 `json:"order_id"`
@@ -35,13 +78,7 @@ type PaymentResponse struct {
 	UpdatedAt             time.Time              `json:"updated_at"`
 }
 
-type PaymentProviderInfo struct {
-	ID   string `json:"id"`
-	Code string `json:"code"`
-	Name string `json:"name"`
-	Type string `json:"type"`
-}
-
+// PaymentInfo representa información resumida de un pago
 type PaymentInfo struct {
 	ID            string     `json:"id"`
 	Amount        float64    `json:"amount"`
@@ -51,14 +88,7 @@ type PaymentInfo struct {
 	ProcessedAt   *time.Time `json:"processed_at,omitempty"`
 }
 
-type PaymentError struct {
-	Attempt          int       `json:"attempt"`
-	Error            string    `json:"error"`
-	Code             string    `json:"code"`
-	Timestamp        time.Time `json:"timestamp"`
-	ProviderResponse *string   `json:"provider_response,omitempty"`
-}
-
+// PaymentListResponse representa una lista paginada de pagos
 type PaymentListResponse struct {
 	Payments   []PaymentResponse `json:"payments"`
 	Total      int64             `json:"total"`
@@ -67,32 +97,11 @@ type PaymentListResponse struct {
 	TotalPages int               `json:"total_pages"`
 	HasNext    bool              `json:"has_next"`
 	HasPrev    bool              `json:"has_prev"`
-	Summary    PaymentSummary    `json:"summary"`
-	Filters    PaymentFilter     `json:"filters,omitempty"`
+	Summary    *PaymentSummary   `json:"summary,omitempty"`
+	Filters    *PaymentFilter    `json:"filters,omitempty"`
 }
 
-type PaymentSummary struct {
-	TotalAmount       float64              `json:"total_amount"`
-	SuccessfulAmount  float64              `json:"successful_amount"`
-	FailedAmount      float64              `json:"failed_amount"`
-	PendingAmount     float64              `json:"pending_amount"`
-	TotalCount        int                  `json:"total_count"`
-	SuccessfulCount   int                  `json:"successful_count"`
-	FailedCount       int                  `json:"failed_count"`
-	PendingCount      int                  `json:"pending_count"`
-	AvgAmount         float64              `json:"avg_amount"`
-	SuccessRate       float64              `json:"success_rate"`
-	AvgProcessingTime float64              `json:"avg_processing_time"`
-	TopPaymentMethods []PaymentMethodStats `json:"top_payment_methods"`
-}
-
-type PaymentMethodStats struct {
-	Method      string  `json:"method"`
-	Count       int     `json:"count"`
-	TotalAmount float64 `json:"total_amount"`
-	SuccessRate float64 `json:"success_rate"`
-}
-
+// PaymentProcessingResponse representa respuesta de procesamiento de pago
 type PaymentProcessingResponse struct {
 	PaymentID            string                 `json:"payment_id"`
 	Status               string                 `json:"status"`
@@ -104,6 +113,7 @@ type PaymentProcessingResponse struct {
 	EstimatedCompletion  *time.Time             `json:"estimated_completion,omitempty"`
 }
 
+// PaymentRetryResponse representa respuesta de reintento de pago
 type PaymentRetryResponse struct {
 	PaymentID          string     `json:"payment_id"`
 	NewStatus          string     `json:"new_status"`

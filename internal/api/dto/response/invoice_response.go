@@ -1,7 +1,71 @@
+// internal/api/dto/response/invoice_response.go
 package response
 
 import "time"
 
+// TaxBreakdownItem representa un item del desglose de impuestos
+type TaxBreakdownItem struct {
+	TaxType     string  `json:"tax_type"`
+	TaxRate     float64 `json:"tax_rate"`
+	TaxableBase float64 `json:"taxable_base"`
+	TaxAmount   float64 `json:"tax_amount"`
+	Exempt      bool    `json:"exempt,omitempty"`
+}
+
+// PaymentBreakdownItem representa un item del desglose de pagos
+type PaymentBreakdownItem struct {
+	PaymentID     string    `json:"payment_id"`
+	Amount        float64   `json:"amount"`
+	PaymentMethod string    `json:"payment_method"`
+	Status        string    `json:"status"`
+	ProcessedAt   time.Time `json:"processed_at"`
+	Reference     *string   `json:"reference,omitempty"`
+}
+
+// OrderBasicInfo representa información básica de una orden para factura
+type OrderBasicInfo struct {
+	ID          string    `json:"id"`
+	OrderNumber string    `json:"order_number"`
+	CreatedAt   time.Time `json:"created_at"`
+	TotalAmount float64   `json:"total_amount"`
+}
+
+// CustomerBasicInfo representa información básica de un cliente para factura
+type CustomerBasicInfo struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Email   string `json:"email"`
+	TaxID   string `json:"tax_id,omitempty"`
+	TaxName string `json:"tax_name,omitempty"`
+	Address string `json:"address,omitempty"`
+	Country string `json:"country"`
+}
+
+// InvoiceStatsResponse representa estadísticas de facturas
+type InvoiceStatsResponse struct {
+	TotalInvoices     int64   `json:"total_invoices"`
+	DraftInvoices     int64   `json:"draft_invoices"`
+	IssuedInvoices    int64   `json:"issued_invoices"`
+	PaidInvoices      int64   `json:"paid_invoices"`
+	CancelledInvoices int64   `json:"cancelled_invoices"`
+	TotalRevenue      float64 `json:"total_revenue"`
+	TotalTax          float64 `json:"total_tax"`
+	AvgInvoiceAmount  float64 `json:"avg_invoice_amount"`
+	OutstandingAmount float64 `json:"outstanding_amount"`
+}
+
+// TaxSummary representa resumen de impuestos por país
+type TaxSummary struct {
+	CountryCode  string  `json:"country_code"`
+	CountryName  string  `json:"country_name"`
+	TaxType      string  `json:"tax_type"`
+	TaxRate      float64 `json:"tax_rate"`
+	TotalBase    float64 `json:"total_base"`
+	TotalTax     float64 `json:"total_tax"`
+	InvoiceCount int64   `json:"invoice_count"`
+}
+
+// InvoiceResponse representa la respuesta completa de una factura
 type InvoiceResponse struct {
 	ID              string    `json:"id"`
 	InvoiceNumber   string    `json:"invoice_number"`
@@ -39,50 +103,12 @@ type InvoiceResponse struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-type OrderBasicInfo struct {
-	ID          string    `json:"id"`
-	OrderNumber string    `json:"order_number"`
-	CreatedAt   time.Time `json:"created_at"`
-	TotalAmount float64   `json:"total_amount"`
-}
-
-type CustomerBasicInfo struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Email   string `json:"email"`
-	TaxID   string `json:"tax_id,omitempty"`
-	TaxName string `json:"tax_name,omitempty"`
-	Address string `json:"address,omitempty"`
-	Country string `json:"country"`
-}
-
-type InvoiceStatsResponse struct {
-	TotalInvoices     int64   `json:"total_invoices"`
-	DraftInvoices     int64   `json:"draft_invoices"`
-	IssuedInvoices    int64   `json:"issued_invoices"`
-	PaidInvoices      int64   `json:"paid_invoices"`
-	CancelledInvoices int64   `json:"cancelled_invoices"`
-	TotalRevenue      float64 `json:"total_revenue"`
-	TotalTax          float64 `json:"total_tax"`
-	AvgInvoiceAmount  float64 `json:"avg_invoice_amount"`
-	OutstandingAmount float64 `json:"outstanding_amount"`
-}
-
-type TaxSummary struct {
-	CountryCode  string  `json:"country_code"`
-	CountryName  string  `json:"country_name"`
-	TaxType      string  `json:"tax_type"`
-	TaxRate      float64 `json:"tax_rate"`
-	TotalBase    float64 `json:"total_base"`
-	TotalTax     float64 `json:"total_tax"`
-	InvoiceCount int64   `json:"invoice_count"`
-}
-
+// InvoiceListResponse representa una lista paginada de facturas
 type InvoiceListResponse struct {
-	Invoices   []InvoiceResponse    `json:"invoices"`
-	Total      int64                `json:"total"`
-	Page       int                  `json:"page"`
-	PageSize   int                  `json:"page_size"`
-	TotalPages int                  `json:"total_pages"`
-	Stats      InvoiceStatsResponse `json:"stats"`
+	Invoices   []InvoiceResponse     `json:"invoices"`
+	Total      int64                 `json:"total"`
+	Page       int                   `json:"page"`
+	PageSize   int                   `json:"page_size"`
+	TotalPages int                   `json:"total_pages"`
+	Stats      *InvoiceStatsResponse `json:"stats,omitempty"`
 }

@@ -69,42 +69,6 @@ type EventListResponse struct {
 	SortOrder  string          `json:"sort_order,omitempty"`
 }
 
-type OrganizerInfo struct {
-	ID         string   `json:"id"`
-	Name       string   `json:"name"`
-	Slug       string   `json:"slug"`
-	LogoURL    string   `json:"logo_url,omitempty"`
-	Verified   bool     `json:"verified"`
-	Rating     *float64 `json:"rating,omitempty"`
-	EventCount int      `json:"event_count"`
-}
-
-type VenueInfo struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Slug        string   `json:"slug"`
-	City        string   `json:"city"`
-	State       string   `json:"state,omitempty"`
-	Country     string   `json:"country"`
-	Address     string   `json:"address,omitempty"`
-	Capacity    int      `json:"capacity,omitempty"`
-	Latitude    *float64 `json:"latitude,omitempty"`
-	Longitude   *float64 `json:"longitude,omitempty"`
-	Featured    bool     `json:"featured"`
-	Description string   `json:"description,omitempty"`
-}
-
-type CategoryInfo struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Slug        string  `json:"slug"`
-	Color       string  `json:"color,omitempty"`
-	Icon        string  `json:"icon,omitempty"`
-	Description string  `json:"description,omitempty"`
-	ParentID    *string `json:"parent_id,omitempty"`
-	EventCount  int     `json:"event_count"`
-}
-
 type TicketTypeInfo struct {
 	ID             string    `json:"id"`
 	Name           string    `json:"name"`
