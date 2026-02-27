@@ -74,7 +74,7 @@ var ValidStatusTransitions = map[TicketStatus][]TicketStatus{
 	TicketStatusExpired:   {},
 }
 
-// CanTransition verifica si es posible transicionar de un estado a otro
+// CanTransitionTicket verifica si es posible transicionar de un estado a otro
 func CanTransitionTicket(from, to TicketStatus) bool {
 	if !from.IsValid() || !to.IsValid() {
 		return false

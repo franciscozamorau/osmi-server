@@ -32,6 +32,17 @@ func NewTicketHandler(ticketService *services.TicketService) *TicketHandler {
 
 // CreateTicket maneja la creación de tickets
 func (h *TicketHandler) CreateTicket(ctx context.Context, req *osmi.CreateTicketRequest) (*osmi.TicketResponse, error) {
+	// Validar campos requeridos
+	if req.EventId == "" {
+		return nil, status.Error(codes.InvalidArgument, "event_id is required")
+	}
+	if req.CategoryId == "" {
+		return nil, status.Error(codes.InvalidArgument, "category_id is required")
+	}
+	if req.Quantity <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "quantity must be greater than 0")
+	}
+
 	// Convertir protobuf a DTO de solicitud
 	createReq := &dto.CreateTicketRequest{
 		EventID:    req.EventId,
@@ -52,9 +63,17 @@ func (h *TicketHandler) CreateTicket(ctx context.Context, req *osmi.CreateTicket
 
 // ReserveTicket maneja la reserva de tickets
 func (h *TicketHandler) ReserveTicket(ctx context.Context, req *osmi.ReserveTicketRequest) (*osmi.TicketResponse, error) {
-	// Convertir protobuf a DTO - usando los campos que existen en el proto
+	// Validar campos requeridos
+	if req.TicketTypeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "ticket_type_id is required")
+	}
+	if req.UserId == "" {
+		return nil, status.Error(codes.InvalidArgument, "user_id is required")
+	}
+
+	// Convertir protobuf a DTO
 	reserveReq := &dto.ReserveTicketRequest{
-		TicketID:  req.TicketTypeId, // Mapeo: TicketTypeId del proto → TicketID del DTO
+		TicketID:  req.TicketTypeId,
 		UserID:    req.UserId,
 		ExpiresAt: req.ExpiresAt.AsTime(),
 	}
@@ -70,6 +89,14 @@ func (h *TicketHandler) ReserveTicket(ctx context.Context, req *osmi.ReserveTick
 
 // CheckInTicket maneja el check-in de tickets
 func (h *TicketHandler) CheckInTicket(ctx context.Context, req *osmi.CheckInTicketRequest) (*osmi.TicketResponse, error) {
+	// Validar campos requeridos
+	if req.TicketId == "" {
+		return nil, status.Error(codes.InvalidArgument, "ticket_id is required")
+	}
+	if req.CheckedBy == "" {
+		return nil, status.Error(codes.InvalidArgument, "checked_by is required")
+	}
+
 	// Convertir protobuf a DTO
 	checkinReq := &dto.CheckInTicketRequest{
 		TicketID:  req.TicketId,
@@ -89,6 +116,17 @@ func (h *TicketHandler) CheckInTicket(ctx context.Context, req *osmi.CheckInTick
 
 // TransferTicket maneja la transferencia de tickets
 func (h *TicketHandler) TransferTicket(ctx context.Context, req *osmi.TransferTicketRequest) (*osmi.TicketResponse, error) {
+	// Validar campos requeridos
+	if req.TicketId == "" {
+		return nil, status.Error(codes.InvalidArgument, "ticket_id is required")
+	}
+	if req.FromCustomerId == "" {
+		return nil, status.Error(codes.InvalidArgument, "from_customer_id is required")
+	}
+	if req.ToCustomerId == "" {
+		return nil, status.Error(codes.InvalidArgument, "to_customer_id is required")
+	}
+
 	// Convertir protobuf a DTO
 	transferReq := &dto.TransferTicketRequest{
 		TicketID:       req.TicketId,
@@ -149,12 +187,15 @@ func (h *TicketHandler) GetTicket(ctx context.Context, req *osmi.GetTicketReques
 func (h *TicketHandler) ListTickets(ctx context.Context, req *osmi.ListTicketsRequest) (*osmi.TicketListResponse, error) {
 	// Convertir filtros del protobuf a DTO TicketFilter
 	filter := &dto.TicketFilter{
-		EventID:    nil, // Necesitarías convertir string a *int64
-		CustomerID: nil, // Necesitarías convertir string a *int64
-		Status:     req.Status,
-		DateFrom:   req.DateFrom,
-		DateTo:     req.DateTo,
+		Status:   req.Status,
+		DateFrom: req.DateFrom,
+		DateTo:   req.DateTo,
 	}
+
+	// Nota: EventID y CustomerID vienen como strings en el proto,
+	// pero el servicio espera *int64. Esto requeriría consultar
+	// los repositorios de eventos y clientes para obtener los IDs numéricos.
+	// Por ahora, se dejan como nil.
 
 	// Paginación
 	pagination := dto.Pagination{
@@ -223,27 +264,46 @@ func (h *TicketHandler) GetTicketStats(ctx context.Context, req *osmi.GetTicketS
 }
 
 // ============================================================================
-// MÉTODOS DE CONSULTA ESPECÍFICOS (COMENtADOS HASTA IMPLEMENTAR EN EL PROTO)
+// MÉTODOS DE CONSULTA ESPECÍFICOS
 // ============================================================================
 
-// Estos métodos están comentados porque los mensajes correspondientes
-// no existen en el proto actual. Cuando se agreguen, se pueden descomentar.
-
-/*
+// GetUserTickets obtiene tickets de un usuario
 func (h *TicketHandler) GetUserTickets(ctx context.Context, req *osmi.UserLookup) (*osmi.TicketListResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "GetUserTickets not implemented in proto")
+	if req.UserId == "" {
+		return nil, status.Error(codes.InvalidArgument, "user_id is required")
+	}
+
+	// TODO: Implementar cuando el servicio lo soporte
+	return nil, status.Error(codes.Unimplemented, "GetUserTickets not implemented yet")
 }
 
+// GetCustomerTickets obtiene tickets de un cliente
 func (h *TicketHandler) GetCustomerTickets(ctx context.Context, req *osmi.CustomerLookup) (*osmi.TicketListResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "GetCustomerTickets not implemented in proto")
+	// Extraer customer_id según el tipo de lookup
+	var customerID string
+	switch lookup := req.Lookup.(type) {
+	case *osmi.CustomerLookup_PublicId:
+		customerID = lookup.PublicId
+	case *osmi.CustomerLookup_Id:
+		customerID = strconv.FormatInt(int64(lookup.Id), 10)
+	case *osmi.CustomerLookup_Email:
+		return nil, status.Error(codes.Unimplemented, "search by email not implemented")
+	default:
+		return nil, status.Error(codes.InvalidArgument, "no valid customer lookup provided")
+	}
+
+	if customerID == "" {
+		return nil, status.Error(codes.InvalidArgument, "customer ID is required")
+	}
+
+	// TODO: Implementar cuando el servicio lo soporte
+	return nil, status.Error(codes.Unimplemented, "GetCustomerTickets not implemented yet")
 }
-*/
 
 // ============================================================================
 // FUNCIÓN HELPER PARA CONVERSIÓN
 // ============================================================================
 
-// ticketToProto convierte una entidad Ticket a protobuf TicketResponse
 // ticketToProto convierte una entidad Ticket a protobuf TicketResponse
 func (h *TicketHandler) ticketToProto(ticket *entities.Ticket) *osmi.TicketResponse {
 	if ticket == nil {
@@ -255,15 +315,15 @@ func (h *TicketHandler) ticketToProto(ticket *entities.Ticket) *osmi.TicketRespo
 		Status:        ticket.Status,
 		Code:          ticket.Code,
 		QrCodeUrl:     helpers.SafeStringPtr(ticket.QRCodeData),
-		EventName:     "", // Requiere consulta adicional
-		EventDate:     "", // Requiere consulta adicional
-		Location:      "", // Requiere consulta adicional
+		EventName:     "", // Requiere consulta adicional al servicio de eventos
+		EventDate:     "", // Requiere consulta adicional al servicio de eventos
+		Location:      "", // Requiere consulta adicional al servicio de eventos
 		Price:         ticket.FinalPrice,
-		CategoryName:  "", // Requiere consulta adicional
-		SeatNumber:    "", // No disponible en la entidad actual
-		CustomerName:  "", // Requiere consulta adicional
-		CustomerEmail: "", // Requiere consulta adicional
-		UserName:      "", // Requiere consulta adicional
+		CategoryName:  "", // Requiere consulta adicional al servicio de ticket types
+		SeatNumber:    "", // No disponible en la entidad actual - se implementará cuando se agregue a la BD
+		CustomerName:  "", // Requiere consulta adicional al servicio de clientes
+		CustomerEmail: "", // Requiere consulta adicional al servicio de clientes
+		UserName:      "", // Requiere consulta adicional al servicio de usuarios
 		CreatedAt:     timestamppb.New(ticket.CreatedAt),
 		UsedAt:        helpers.SafeTimePtr(ticket.CheckedInAt),
 	}

@@ -1,3 +1,4 @@
+// internal/application/handlers/grpc/user_handler.go
 package grpc
 
 import (
@@ -28,14 +29,35 @@ func NewUserHandler(userService *services.UserService, jwtSecret string) *UserHa
 	}
 }
 
+// ============================================================================
+// MÉTODOS IMPLEMENTADOS
+// ============================================================================
+
 // CreateUser maneja la creación de un nuevo usuario
 func (h *UserHandler) CreateUser(ctx context.Context, req *osmi.CreateUserRequest) (*osmi.UserResponse, error) {
+	// Validar campos requeridos
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	if req.Email == "" {
+		return nil, status.Error(codes.InvalidArgument, "email is required")
+	}
+	if req.Password == "" {
+		return nil, status.Error(codes.InvalidArgument, "password is required")
+	}
+	if len(req.Password) < 6 {
+		return nil, status.Error(codes.InvalidArgument, "password must be at least 6 characters")
+	}
+
 	// Convertir protobuf a DTO
 	createReq := &request.CreateUserRequest{
 		Username: req.Name,
 		Email:    req.Email,
 		Password: req.Password,
 		Role:     req.Role,
+	}
+	if createReq.Role == "" {
+		createReq.Role = "customer" // Valor por defecto
 	}
 
 	// Llamar al servicio
@@ -65,7 +87,7 @@ func (h *UserHandler) GetUser(ctx context.Context, req *osmi.UserLookup) (*osmi.
 	// Convertir el ID de string a int64
 	userID, err := strconv.ParseInt(req.UserId, 10, 64)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid user_id format")
+		return nil, status.Error(codes.InvalidArgument, "invalid user_id format: must be a numeric ID")
 	}
 
 	// Llamar al servicio
@@ -86,35 +108,39 @@ func (h *UserHandler) GetUser(ctx context.Context, req *osmi.UserLookup) (*osmi.
 }
 
 // ============================================================================
-// MÉTODOS NO IMPLEMENTADOS EN EL PROTO ACTUAL
+// MÉTODOS NO IMPLEMENTADOS (PREPARADOS PARA EL FUTURO)
 // ============================================================================
 
-// Los siguientes métodos están comentados porque no existen en el proto actual.
-// Si en el futuro se añaden al proto, se pueden descomentar y adaptar.
-
-/*
+// UpdateUser actualiza la información de un usuario
+// Nota: Este método no está en el proto actual. Cuando se agregue, se implementará aquí.
 func (h *UserHandler) UpdateUser(ctx context.Context, req *osmi.UpdateUserRequest) (*osmi.UserResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "UpdateUser not implemented in proto")
 }
 
+// DeleteUser elimina (desactiva) un usuario
+// Nota: Este método no está en el proto actual. Cuando se agregue, se implementará aquí.
 func (h *UserHandler) DeleteUser(ctx context.Context, req *osmi.Empty) (*osmi.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "DeleteUser not implemented in proto")
 }
 
+// Login autentica a un usuario y crea una sesión
+// Nota: Este método no está en el proto actual. Cuando se agregue, se implementará aquí.
 func (h *UserHandler) Login(ctx context.Context, req *osmi.LoginRequest) (*osmi.LoginResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "Login not implemented in proto")
 }
 
+// Logout cierra la sesión de un usuario
+// Nota: Este método no está en el proto actual. Cuando se agregue, se implementará aquí.
 func (h *UserHandler) Logout(ctx context.Context, req *osmi.Empty) (*osmi.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "Logout not implemented in proto")
 }
-*/
 
 // ============================================================================
-// FUNCIONES DE CONTEXTO (IMPLEMENTACIÓN PENDIENTE)
+// FUNCIONES DE CONTEXTO PARA JWT
 // ============================================================================
 
 // extractUserIDFromContext extrae el userID del token JWT en el contexto
+// Útil para interceptores y autenticación
 func (h *UserHandler) extractUserIDFromContext(ctx context.Context) (int64, error) {
 	// Obtener el token del metadata
 	md, ok := metadata.FromIncomingContext(ctx)
@@ -159,8 +185,19 @@ func (h *UserHandler) extractUserIDFromContext(ctx context.Context) (int64, erro
 	return int64(userIDFloat), nil
 }
 
-// extractSessionIDFromContext extrae el sessionID del contexto (implementación pendiente)
+// extractSessionIDFromContext extrae el sessionID del contexto
+// Útil para interceptores y validación de sesiones
 func (h *UserHandler) extractSessionIDFromContext(ctx context.Context) (string, error) {
-	// Por ahora, retornar error
-	return "", status.Error(codes.Unimplemented, "session extraction not implemented")
+	// Obtener el session_id del metadata
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return "", status.Error(codes.Unauthenticated, "metadata not found")
+	}
+
+	sessionHeaders := md.Get("x-session-id")
+	if len(sessionHeaders) == 0 {
+		return "", status.Error(codes.Unauthenticated, "session ID not found")
+	}
+
+	return sessionHeaders[0], nil
 }
