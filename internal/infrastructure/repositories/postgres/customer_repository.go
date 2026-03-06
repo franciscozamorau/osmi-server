@@ -253,10 +253,40 @@ func (r *CustomerRepository) Find(ctx context.Context, filter *repository.Custom
 	}
 
 	// Ejecutar query
-	var customers []*entities.Customer
-	err = r.db.SelectContext(ctx, &customers, baseQuery, args...)
+	rows, err := r.db.QueryxContext(ctx, baseQuery, args...)
 	if err != nil {
 		return nil, 0, r.handleError(err, "failed to find customers")
+	}
+	defer rows.Close()
+
+	var customers []*entities.Customer
+	for rows.Next() {
+		var customer entities.Customer
+		var commPrefsJSON []byte
+
+		err = rows.Scan(
+			&customer.ID, &customer.PublicID, &customer.UserID,
+			&customer.FullName, &customer.Email, &customer.Phone,
+			&customer.CompanyName, &customer.AddressLine1, &customer.AddressLine2,
+			&customer.City, &customer.State, &customer.PostalCode, &customer.Country,
+			&customer.TaxID, &customer.TaxIDType, &customer.TaxName, &customer.RequiresInvoice,
+			&commPrefsJSON, // ← SCAN COMO BYTES
+			&customer.TotalSpent, &customer.TotalOrders, &customer.TotalTickets, &customer.AvgOrderValue,
+			&customer.FirstOrderAt, &customer.LastOrderAt, &customer.LastPurchaseAt,
+			&customer.IsActive, &customer.IsVIP, &customer.VIPSince,
+			&customer.CustomerSegment, &customer.LifetimeValue,
+			&customer.CreatedAt, &customer.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, r.handleError(err, "failed to scan customer row")
+		}
+
+		// 🔴 NUEVO: Deserializar JSON
+		if len(commPrefsJSON) > 0 {
+			json.Unmarshal(commPrefsJSON, &customer.CommunicationPreferences)
+		}
+
+		customers = append(customers, &customer)
 	}
 
 	return customers, total, nil

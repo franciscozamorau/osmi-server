@@ -16,6 +16,7 @@ type TicketTypeRepository interface {
 	Update(ctx context.Context, ticketType *entities.TicketType) error
 	Delete(ctx context.Context, id int64) error
 	SoftDelete(ctx context.Context, publicID string) error
+	SellTicketsDirect(ctx context.Context, ticketTypeID int64, quantity int) error
 
 	// Búsquedas
 	List(ctx context.Context, filter dto.TicketTypeFilter, pagination dto.Pagination) ([]*entities.TicketType, int64, error)

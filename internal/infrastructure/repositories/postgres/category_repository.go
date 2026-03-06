@@ -393,3 +393,209 @@ func (r *CategoryRepository) Delete(ctx context.Context, id int64) error {
 
 	return nil
 }
+
+// AddEventToCategory asocia un evento a una categoría
+func (r *CategoryRepository) AddEventToCategory(ctx context.Context, eventID, categoryID int64, isPrimary bool) error {
+	query := `
+		INSERT INTO ticketing.event_categories (event_id, category_id, is_primary, created_at)
+		VALUES ($1, $2, $3, NOW())
+		ON CONFLICT (event_id, category_id) DO UPDATE SET
+			is_primary = EXCLUDED.is_primary
+	`
+
+	_, err := r.db.ExecContext(ctx, query, eventID, categoryID, isPrimary)
+	if err != nil {
+		return r.handleError(err, "failed to add event to category")
+	}
+
+	return nil
+}
+
+// ============================================================================
+// MÉTODOS FALTANTES PARA COMPLETAR LA INTERFAZ
+// ============================================================================
+
+// IncrementEventCount incrementa el contador de eventos de una categoría
+func (r *CategoryRepository) IncrementEventCount(ctx context.Context, categoryID int64) error {
+	query := `
+		UPDATE ticketing.categories 
+		SET total_events = total_events + 1, updated_at = NOW()
+		WHERE id = $1
+	`
+	result, err := r.db.ExecContext(ctx, query, categoryID)
+	if err != nil {
+		return r.handleError(err, "failed to increment event count")
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return repository.ErrCategoryNotFound
+	}
+	return nil
+}
+
+// DecrementEventCount decrementa el contador de eventos de una categoría
+func (r *CategoryRepository) DecrementEventCount(ctx context.Context, categoryID int64) error {
+	query := `
+		UPDATE ticketing.categories 
+		SET total_events = GREATEST(0, total_events - 1), updated_at = NOW()
+		WHERE id = $1
+	`
+	result, err := r.db.ExecContext(ctx, query, categoryID)
+	if err != nil {
+		return r.handleError(err, "failed to decrement event count")
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return repository.ErrCategoryNotFound
+	}
+	return nil
+}
+
+// UpdateEventStats actualiza las estadísticas de ventas de una categoría
+func (r *CategoryRepository) UpdateEventStats(ctx context.Context, categoryID int64, ticketSold int64, revenue float64) error {
+	query := `
+		UPDATE ticketing.categories 
+		SET total_tickets_sold = total_tickets_sold + $1,
+			total_revenue = total_revenue + $2,
+			updated_at = NOW()
+		WHERE id = $3
+	`
+	result, err := r.db.ExecContext(ctx, query, ticketSold, revenue, categoryID)
+	if err != nil {
+		return r.handleError(err, "failed to update event stats")
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return repository.ErrCategoryNotFound
+	}
+	return nil
+}
+
+// GetEventCategories obtiene las categorías de un evento
+func (r *CategoryRepository) GetEventCategories(ctx context.Context, eventID int64) ([]*entities.Category, error) {
+	query := `
+		SELECT c.*
+		FROM ticketing.categories c
+		JOIN ticketing.event_categories ec ON c.id = ec.category_id
+		WHERE ec.event_id = $1
+		ORDER BY 
+			CASE WHEN ec.is_primary THEN 0 ELSE 1 END,
+			c.sort_order, c.name
+	`
+	var categories []*entities.Category
+	err := r.db.SelectContext(ctx, &categories, query, eventID)
+	if err != nil {
+		return nil, r.handleError(err, "failed to get event categories")
+	}
+	return categories, nil
+}
+
+// RemoveEventFromCategory elimina la asociación entre un evento y una categoría
+func (r *CategoryRepository) RemoveEventFromCategory(ctx context.Context, eventID, categoryID int64) error {
+	query := `DELETE FROM ticketing.event_categories WHERE event_id = $1 AND category_id = $2`
+	result, err := r.db.ExecContext(ctx, query, eventID, categoryID)
+	if err != nil {
+		return r.handleError(err, "failed to remove event from category")
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("association not found")
+	}
+	return nil
+}
+
+// GetPrimaryCategoryForEvent obtiene la categoría principal de un evento
+func (r *CategoryRepository) GetPrimaryCategoryForEvent(ctx context.Context, eventID int64) (*entities.Category, error) {
+	query := `
+		SELECT c.*
+		FROM ticketing.categories c
+		JOIN ticketing.event_categories ec ON c.id = ec.category_id
+		WHERE ec.event_id = $1 AND ec.is_primary = true
+		LIMIT 1
+	`
+	var category entities.Category
+	err := r.db.GetContext(ctx, &category, query, eventID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil // No hay categoría principal
+		}
+		return nil, r.handleError(err, "failed to get primary category")
+	}
+	return &category, nil
+}
+
+// GetTree obtiene el árbol jerárquico de categorías
+func (r *CategoryRepository) GetTree(ctx context.Context, rootID *int64) ([]*repository.CategoryNode, error) {
+	var rows *sqlx.Rows
+	var err error
+
+	if rootID == nil {
+		// Obtener todas las categorías
+		rows, err = r.db.QueryxContext(ctx, `
+			SELECT id, public_uuid, name, slug, description, icon, color_hex,
+				parent_id, level, path, total_events, total_tickets_sold, total_revenue,
+				is_active, is_featured, sort_order, meta_title, meta_description,
+				created_at, updated_at
+			FROM ticketing.categories
+			ORDER BY parent_id NULLS FIRST, sort_order, name
+		`)
+	} else {
+		// Obtener subárbol desde rootID
+		rows, err = r.db.QueryxContext(ctx, `
+			WITH RECURSIVE category_tree AS (
+				SELECT id, public_uuid, name, slug, description, icon, color_hex,
+					parent_id, level, path, total_events, total_tickets_sold, total_revenue,
+					is_active, is_featured, sort_order, meta_title, meta_description,
+					created_at, updated_at, 1 as depth
+				FROM ticketing.categories
+				WHERE id = $1
+				UNION ALL
+				SELECT c.id, c.public_uuid, c.name, c.slug, c.description, c.icon, c.color_hex,
+					c.parent_id, c.level, c.path, c.total_events, c.total_tickets_sold, c.total_revenue,
+					c.is_active, c.is_featured, c.sort_order, c.meta_title, c.meta_description,
+					c.created_at, c.updated_at, ct.depth + 1
+				FROM ticketing.categories c
+				INNER JOIN category_tree ct ON c.parent_id = ct.id
+			)
+			SELECT * FROM category_tree
+			ORDER BY depth, sort_order, name
+		`, *rootID)
+	}
+
+	if err != nil {
+		return nil, r.handleError(err, "failed to get category tree")
+	}
+	defer rows.Close()
+
+	// Mapa temporal para construir el árbol
+	categoryMap := make(map[int64]*repository.CategoryNode)
+	var roots []*repository.CategoryNode
+
+	for rows.Next() {
+		var cat entities.Category
+		err = rows.StructScan(&cat)
+		if err != nil {
+			return nil, r.handleError(err, "failed to scan category")
+		}
+
+		node := &repository.CategoryNode{
+			Category: &cat,
+			Children: []*repository.CategoryNode{},
+		}
+		categoryMap[cat.ID] = node
+
+		if cat.ParentID == nil {
+			roots = append(roots, node)
+		} else {
+			if parent, ok := categoryMap[*cat.ParentID]; ok {
+				parent.Children = append(parent.Children, node)
+			}
+		}
+	}
+
+	return roots, nil
+}

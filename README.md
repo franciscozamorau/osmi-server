@@ -21,6 +21,7 @@ osmi-server/
 ├── cmd/
 │   └── main.go                              # Punto de entrada de la aplicación
 ├── config/                                  # Archivos de configuración YAML
+│   ├── deployment.yaml
 │   ├── development.yaml                     # Configuración para entorno de desarrollo
 │   ├── production.yaml                      # Configuración para entorno de producción  
 │   └── staging.yaml                         # Configuración para entorno de staging
@@ -91,6 +92,7 @@ osmi-server/
 │   │   │   ├── grpc/                       # Handlers para gRPC
 │   │   │   │   ├── customer_handler.go      # Handler de clientes (gRPC)
 │   │   │   │   ├── event_handler.go         # Handler de eventos (gRPC)
+│   │   │   │   ├── handler.go              # unificado que implementa OsmiServiceServer con todos los métodos.
 │   │   │   │   ├── ticket_handler.go        # Handler de tickets (gRPC)
 │   │   │   │   └── user_handler.go          # Handler de usuarios (gRPC)
 │   │   │   └── http/                       # Handlers para HTTP REST
@@ -107,6 +109,8 @@ osmi-server/
 │   ├── config/                             # Configuración interna de la aplicación
 │   │   ├── config.go                       # Configuración principal de la aplicación
 │   │   └── environment.go                  # Manejo y validación de variables de entorno
+│   ├── context/                             # 
+│   │   ├── context.go                       # 
 │   ├── database/                           # Acceso y gestión de base de datos
 │   │   ├── connection.go                   # Conexión y pool de conexiones a PostgreSQL
 │   ├── domain/                             # Dominio del negocio (DDD)
@@ -213,6 +217,9 @@ osmi-server/
 │   │           ├── event_repository.go    # Implementación PostgreSQL de repositorio de eventos
 │   │           ├── ticket_repository.go   # Implementación PostgreSQL de repositorio de tickets
 │   │           └── user_repository.go     # Implementación PostgreSQL de repositorio de usuarios
+│   └── repository/                         # 
+│   │   ├── testdb/                       #
+│       │   ├── testdb.go                  # 
 │   └── shared/                            # Utilidades compartidas entre capas
 │       ├── errors/                        # Manejo estructurado de errores
 │       │   ├── app_error.go               # Error personalizado de aplicación con contexto
@@ -280,6 +287,7 @@ osmi-server/
 │               ├── event_repository_test.go
 │               ├── ticket_repository_test.go
 │               └── user_repository_test.go
+├── shared-protobuf/
 ├── .dockerignore                          # Archivos a ignorar en builds Docker
 ├── .env                                   # Variables de entorno para desarrollo local
 ├── .env.development                       # Variables de entorno para entorno de desarrollo

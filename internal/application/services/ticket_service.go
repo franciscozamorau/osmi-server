@@ -112,7 +112,7 @@ func (s *TicketService) CreateTicket(ctx context.Context, req *dto.CreateTicketR
 		return nil, fmt.Errorf("failed to create ticket: %w", err)
 	}
 
-	err = s.ticketTypeRepo.SellTickets(ctx, ticketType.ID, int(req.Quantity))
+	err = s.ticketTypeRepo.SellTicketsDirect(ctx, ticketType.ID, int(req.Quantity))
 	if err != nil {
 		_ = s.ticketRepo.Delete(ctx, ticket.ID)
 		return nil, fmt.Errorf("failed to update ticket type sales: %w", err)

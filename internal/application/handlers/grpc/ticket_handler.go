@@ -3,6 +3,7 @@ package grpc
 
 import (
 	"context"
+	"log"
 	"strconv"
 
 	osmi "github.com/franciscozamorau/osmi-protobuf/gen/pb"
@@ -43,16 +44,17 @@ func (h *TicketHandler) CreateTicket(ctx context.Context, req *osmi.CreateTicket
 		return nil, status.Error(codes.InvalidArgument, "quantity must be greater than 0")
 	}
 
-	// Convertir protobuf a DTO de solicitud
+	// 🔴 CORREGIDO: Asegurar que customer_id se pasa
 	createReq := &dto.CreateTicketRequest{
 		EventID:    req.EventId,
 		UserID:     req.UserId,
 		CategoryID: req.CategoryId,
 		Quantity:   req.Quantity,
-		// CustomerID se obtendrá del contexto o se asignará después
+		CustomerID: req.CustomerId,
 	}
 
-	// Llamar al servicio
+	log.Printf("📦 Creando ticket con CustomerID: %q", createReq.CustomerID)
+
 	ticket, err := h.ticketService.CreateTicket(ctx, createReq)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())

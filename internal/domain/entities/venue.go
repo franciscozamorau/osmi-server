@@ -5,6 +5,18 @@ import (
 	"time"
 )
 
+// VenueImage representa una imagen asociada a un venue con metadatos completos
+type VenueImage struct {
+	URL          string    `json:"url"`
+	IsPrimary    bool      `json:"is_primary"`
+	Type         string    `json:"type"`                    // "general", "floor_plan", "stage", "entrance", "backstage"
+	Caption      *string   `json:"caption,omitempty"`       // Título o descripción
+	SortOrder    int       `json:"sort_order"`              // Para ordenar manualmente
+	UploadedAt   time.Time `json:"uploaded_at"`             // Cuándo se subió
+	ThumbnailURL *string   `json:"thumbnail_url,omitempty"` // Para CDN
+	MediumURL    *string   `json:"medium_url,omitempty"`    // Para CDN
+}
+
 // Venue recinto para eventos
 // Mapea exactamente la tabla ticketing.venues
 type Venue struct {
@@ -23,30 +35,24 @@ type Venue struct {
 	PostalCode   *string `json:"postal_code,omitempty" db:"postal_code"`
 	Country      string  `json:"country" db:"country"`
 
-	// CORREGIDO: Latitude y Longitude pueden ser NULL en la BD
 	Latitude  *float64 `json:"latitude,omitempty" db:"latitude"`
 	Longitude *float64 `json:"longitude,omitempty" db:"longitude"`
-	// NOTA: geolocation es tipo GEOGRAPHY en PostGIS, se maneja aparte o mediante funciones
 
-	// Capacidades - pueden ser NULL
 	Capacity         *int `json:"capacity,omitempty" db:"capacity"`
 	SeatingCapacity  *int `json:"seating_capacity,omitempty" db:"seating_capacity"`
 	StandingCapacity *int `json:"standing_capacity,omitempty" db:"standing_capacity"`
 
-	// CORREGIDO: facilities es JSONB
-	Facilities *[]string `json:"facilities,omitempty" db:"facilities,type:jsonb"`
-	// CORREGIDO: accessibility_features es JSONB
+	Facilities            *[]string `json:"facilities,omitempty" db:"facilities,type:jsonb"`
 	AccessibilityFeatures *[]string `json:"accessibility_features,omitempty" db:"accessibility_features,type:jsonb"`
 
 	ContactEmail *string `json:"contact_email,omitempty" db:"contact_email"`
 	ContactPhone *string `json:"contact_phone,omitempty" db:"contact_phone"`
 
-	// CORREGIDO: images es JSONB
-	Images *[]string `json:"images,omitempty" db:"images,type:jsonb"`
+	// Estructura completa para imágenes
+	Images *[]VenueImage `json:"images,omitempty" db:"images,type:jsonb"`
 
 	IsActive bool `json:"is_active" db:"is_active"`
 
-	// CORREGIDO: time.Time en lugar de string
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }
@@ -97,7 +103,6 @@ func (v *Venue) GetTotalCapacity() int {
 		return *v.Capacity
 	}
 
-	// Si no hay capacidad definida, sumar seating + standing si existen
 	total := 0
 	if v.SeatingCapacity != nil {
 		total += *v.SeatingCapacity
@@ -124,7 +129,6 @@ func (v *Venue) AddFacility(facility string) {
 		v.Facilities = &[]string{}
 	}
 
-	// Verificar si ya existe
 	for _, f := range *v.Facilities {
 		if f == facility {
 			return
@@ -176,7 +180,6 @@ func (v *Venue) AddAccessibilityFeature(feature string) {
 		v.AccessibilityFeatures = &[]string{}
 	}
 
-	// Verificar si ya existe
 	for _, f := range *v.AccessibilityFeatures {
 		if f == feature {
 			return
@@ -222,32 +225,36 @@ func (v *Venue) HasAccessibilityFeature(feature string) bool {
 	return false
 }
 
-// AddImage añade una imagen
-func (v *Venue) AddImage(imageURL string) {
+// AddImage añade una imagen con metadatos completos
+func (v *Venue) AddImage(image VenueImage) {
 	if v.Images == nil {
-		v.Images = &[]string{}
+		v.Images = &[]VenueImage{}
 	}
 
 	// Verificar si ya existe
-	for _, img := range *v.Images {
-		if img == imageURL {
+	for i, img := range *v.Images {
+		if img.URL == image.URL {
 			return
+		}
+		if image.IsPrimary {
+			(*v.Images)[i].IsPrimary = false
 		}
 	}
 
-	*v.Images = append(*v.Images, imageURL)
+	image.UploadedAt = time.Now()
+	*v.Images = append(*v.Images, image)
 	v.UpdatedAt = time.Now()
 }
 
-// RemoveImage elimina una imagen
+// RemoveImage elimina una imagen por URL
 func (v *Venue) RemoveImage(imageURL string) {
 	if v.Images == nil {
 		return
 	}
 
-	newImages := []string{}
+	newImages := []VenueImage{}
 	for _, img := range *v.Images {
-		if img != imageURL {
+		if img.URL != imageURL {
 			newImages = append(newImages, img)
 		}
 	}
@@ -256,30 +263,87 @@ func (v *Venue) RemoveImage(imageURL string) {
 		v.Images = nil
 	} else {
 		*v.Images = newImages
+		// Asegurar que haya una imagen principal
+		v.ensurePrimaryImage()
 	}
 	v.UpdatedAt = time.Now()
 }
 
-// HasImage verifica si tiene una imagen específica
-func (v *Venue) HasImage(imageURL string) bool {
+// SetPrimaryImage establece una imagen como principal
+func (v *Venue) SetPrimaryImage(imageURL string) error {
 	if v.Images == nil {
-		return false
+		return errors.New("no images to set as primary")
+	}
+
+	found := false
+	for i, img := range *v.Images {
+		if img.URL == imageURL {
+			found = true
+			(*v.Images)[i].IsPrimary = true
+		} else {
+			(*v.Images)[i].IsPrimary = false
+		}
+	}
+
+	if !found {
+		return errors.New("image not found")
+	}
+
+	v.UpdatedAt = time.Now()
+	return nil
+}
+
+// GetPrimaryImage obtiene la imagen principal
+func (v *Venue) GetPrimaryImage() *VenueImage {
+	if v.Images == nil {
+		return nil
 	}
 
 	for _, img := range *v.Images {
-		if img == imageURL {
-			return true
+		if img.IsPrimary {
+			return &img
 		}
 	}
-	return false
+
+	// Si no hay principal, devolver la primera
+	if len(*v.Images) > 0 {
+		return &(*v.Images)[0]
+	}
+	return nil
 }
 
-// GetPrimaryImage obtiene la imagen principal (primera)
-func (v *Venue) GetPrimaryImage() string {
-	if v.Images == nil || len(*v.Images) == 0 {
-		return ""
+// GetImagesByType obtiene imágenes de un tipo específico
+func (v *Venue) GetImagesByType(imageType string) []VenueImage {
+	if v.Images == nil {
+		return []VenueImage{}
 	}
-	return (*v.Images)[0]
+
+	result := []VenueImage{}
+	for _, img := range *v.Images {
+		if img.Type == imageType {
+			result = append(result, img)
+		}
+	}
+	return result
+}
+
+// ensurePrimaryImage asegura que haya al menos una imagen principal
+func (v *Venue) ensurePrimaryImage() {
+	if v.Images == nil || len(*v.Images) == 0 {
+		return
+	}
+
+	hasPrimary := false
+	for _, img := range *v.Images {
+		if img.IsPrimary {
+			hasPrimary = true
+			break
+		}
+	}
+
+	if !hasPrimary && len(*v.Images) > 0 {
+		(*v.Images)[0].IsPrimary = true
+	}
 }
 
 // Validate verifica que el venue sea válido
@@ -303,7 +367,6 @@ func (v *Venue) Validate() error {
 		return errors.New("venue_type is required")
 	}
 
-	// Validar coordenadas si están presentes
 	if v.Latitude != nil && (*v.Latitude < -90 || *v.Latitude > 90) {
 		return errors.New("latitude must be between -90 and 90")
 	}

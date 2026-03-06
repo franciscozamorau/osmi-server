@@ -33,7 +33,7 @@ type VenueRepository interface {
 	UpdateContactInfo(ctx context.Context, venueID int64, email, phone string) error
 	UpdateFacilities(ctx context.Context, venueID int64, facilities []string) error
 	UpdateAccessibility(ctx context.Context, venueID int64, features []string) error
-	AddImage(ctx context.Context, venueID int64, imageURL string, isMain bool) error
+	AddImage(ctx context.Context, venueID int64, image entities.VenueImage) error
 	RemoveImage(ctx context.Context, venueID int64, imageURL string) error
 	SetMainImage(ctx context.Context, venueID int64, imageURL string) error
 

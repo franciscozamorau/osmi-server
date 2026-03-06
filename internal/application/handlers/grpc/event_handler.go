@@ -3,6 +3,7 @@ package grpc
 
 import (
 	"context"
+	"log"
 	"time"
 
 	osmi "github.com/franciscozamorau/osmi-protobuf/gen/pb"
@@ -28,35 +29,60 @@ func NewEventHandler(eventService *services.EventService) *EventHandler {
 
 // ============================================================================
 // MÉTODOS PRINCIPALES
-// ============================================================================
+//============================================================================
 
 // CreateEvent maneja la creación de un nuevo evento
 func (h *EventHandler) CreateEvent(ctx context.Context, req *osmi.CreateEventRequest) (*osmi.EventResponse, error) {
-	// Validar campos requeridos
+	// LOG 1: Entrada a la función
+	log.Println("🎯 EVENT_HANDLER: CreateEvent ENTRÓ a la función")
+	log.Printf("🎯 EVENT_HANDLER: req type: %T", req)
+	log.Printf("🎯 EVENT_HANDLER: req value: %+v", req)
+
+	// LOG 2: Validar campos requeridos UNO POR UNO
+	log.Printf("🎯 Validando Name: %q", req.Name)
 	if req.Name == "" {
+		log.Println("🎯 ERROR: Name vacío")
 		return nil, status.Error(codes.InvalidArgument, "name is required")
 	}
+
+	log.Printf("🎯 Validando OrganizerId: %q", req.OrganizerId)
 	if req.OrganizerId == "" {
+		log.Println("🎯 ERROR: OrganizerId vacío")
 		return nil, status.Error(codes.InvalidArgument, "organizer_id is required")
 	}
-	if req.StartDate == "" || req.EndDate == "" {
-		return nil, status.Error(codes.InvalidArgument, "start_date and end_date are required")
+
+	log.Printf("🎯 Validando StartDate: %q", req.StartDate)
+	if req.StartDate == "" {
+		log.Println("🎯 ERROR: StartDate vacío")
+		return nil, status.Error(codes.InvalidArgument, "start_date is required")
 	}
 
-	// Parsear fechas
+	log.Printf("🎯 Validando EndDate: %q", req.EndDate)
+	if req.EndDate == "" {
+		log.Println("🎯 ERROR: EndDate vacío")
+		return nil, status.Error(codes.InvalidArgument, "end_date is required")
+	}
+
+	// LOG 3: Parsear fechas
+	log.Println("🎯 Parseando fechas...")
 	startsAt, err := time.Parse(time.RFC3339, req.StartDate)
 	if err != nil {
+		log.Printf("🎯 ERROR parseando start_date: %v", err)
 		return nil, status.Error(codes.InvalidArgument, "invalid start_date format (use RFC3339)")
 	}
+
 	endsAt, err := time.Parse(time.RFC3339, req.EndDate)
 	if err != nil {
+		log.Printf("🎯 ERROR parseando end_date: %v", err)
 		return nil, status.Error(codes.InvalidArgument, "invalid end_date format (use RFC3339)")
 	}
+	log.Printf("🎯 Fechas parseadas: startsAt=%v, endsAt=%v", startsAt, endsAt)
 
-	// Convertir protobuf a DTO
+	// LOG 4: Crear DTO
+	log.Println("🎯 Creando DTO...")
 	createReq := &dto.CreateEventRequest{
 		Name:                req.Name,
-		Slug:                req.Name, // Generar slug automáticamente si no se provee
+		Slug:                req.Name,
 		Description:         req.Description,
 		ShortDescription:    req.ShortDescription,
 		OrganizerID:         req.OrganizerId,
@@ -65,7 +91,7 @@ func (h *EventHandler) CreateEvent(ctx context.Context, req *osmi.CreateEventReq
 		CategoryIDs:         req.CategoryIds,
 		StartsAt:            startsAt,
 		EndsAt:              endsAt,
-		DoorsOpenAt:         time.Time{}, // Se puede agregar si viene en el proto
+		DoorsOpenAt:         time.Time{},
 		DoorsCloseAt:        time.Time{},
 		Timezone:            req.Timezone,
 		EventType:           req.EventType,
@@ -87,14 +113,23 @@ func (h *EventHandler) CreateEvent(ctx context.Context, req *osmi.CreateEventReq
 		AllowReservations:   req.AllowReservations,
 		ReservationDuration: req.ReservationDuration,
 	}
+	log.Printf("🎯 DTO creado: %+v", createReq)
 
-	// Llamar al servicio
+	// LOG 5: Llamar al servicio
+	log.Println("🎯 Llamando a eventService.CreateEvent...")
 	event, err := h.eventService.CreateEvent(ctx, createReq)
 	if err != nil {
+		log.Printf("🎯 ERROR en eventService.CreateEvent: %v", err)
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
+	log.Printf("🎯 eventService.CreateEvent OK, event: %+v", event)
 
-	return h.eventToProto(event), nil
+	// LOG 6: Convertir a proto
+	log.Println("🎯 Convirtiendo a proto...")
+	resp := h.eventToProto(event)
+	log.Printf("🎯 Respuesta preparada: %+v", resp)
+
+	return resp, nil
 }
 
 // GetEvent obtiene un evento por su ID
@@ -126,10 +161,13 @@ func (h *EventHandler) ListEvents(ctx context.Context, req *osmi.ListEventsReque
 		Search:     req.Search,
 	}
 
-	if req.OrganizerId != "" {
+	// Usar GetOrganizerId() para obtener el valor
+	organizerId := req.GetOrganizerId()
+	if organizerId != "" {
 		// Nota: Necesitarías convertir organizer_id a int64
 		// Por ahora se omite
 	}
+
 	if req.CategoryId != "" {
 		// Nota: Necesitarías convertir category_id a int64
 		// Por ahora se omite
