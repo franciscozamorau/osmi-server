@@ -77,16 +77,6 @@ osmi-server/
 │   │   │   └── server.go                    # Configuración e inicialización del servidor gRPC
 │   │   └── helpers/                         #
 │   │   │   └── helpers.go                   # 
-│   │   └── http/                            # Servidor y configuración HTTP REST
-│   │       ├── middleware/                  # Middleware HTTP
-│   │       │   ├── auth_middleware.go       # Middleware de autenticación HTTP
-│   │       │   ├── cors_middleware.go       # Middleware de configuración CORS
-│   │       │   └── logging_middleware.go    # Middleware de logging HTTP
-│   │       ├── routes/                      # Definición de rutas HTTP
-│   │       │   ├── event_routes.go          # Rutas para gestión de eventos
-│   │       │   └── ticket_routes.go         # Rutas para gestión de tickets
-│   │       │   └── router.go
-│   │       └── server.go                    # Configuración e inicialización del servidor HTTP
 │   ├── application/                         # LÓGICA DE NEGOCIO (usa interfaces)
 │   │   ├── handlers/                       # Manejadores de peticiones
 │   │   │   ├── grpc/                       # Handlers para gRPC

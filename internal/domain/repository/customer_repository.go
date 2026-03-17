@@ -92,18 +92,19 @@ type CustomerRepository interface {
 }
 
 // CustomerStats representa estadísticas agregadas de clientes
+// Los tags `db:` son NECESARIOS para que sqlx pueda mapear los resultados de la query
 type CustomerStats struct {
-	TotalCustomers         int64         `json:"total_customers"`
-	ActiveCustomers        int64         `json:"active_customers"`
-	VIPCustomers           int64         `json:"vip_customers"`
-	NewCustomersLast30Days int64         `json:"new_customers_last_30_days"`
-	TotalRevenue           float64       `json:"total_revenue"`
-	AvgLifetimeValue       float64       `json:"avg_lifetime_value"`
+	TotalCustomers         int64         `db:"total_customers" json:"total_customers"`
+	ActiveCustomers        int64         `db:"active_customers" json:"active_customers"`
+	VIPCustomers           int64         `db:"vip_customers" json:"vip_customers"`
+	NewCustomersLast30Days int64         `db:"new_customers_last_30_days" json:"new_customers_last_30_days"`
+	TotalRevenue           float64       `db:"total_revenue" json:"total_revenue"`
+	AvgLifetimeValue       float64       `db:"avg_lifetime_value" json:"avg_lifetime_value"`
 	TopCountries           []CountryStat `json:"top_countries,omitempty"`
 }
 
 type CountryStat struct {
-	Country string  `json:"country"`
-	Count   int64   `json:"count"`
-	Revenue float64 `json:"revenue"`
+	Country string  `db:"country" json:"country"` // ← Añadido tag db: para consistencia
+	Count   int64   `db:"count" json:"count"`     // ← Añadido tag db: para consistencia
+	Revenue float64 `db:"revenue" json:"revenue"` // ← Añadido tag db: para consistencia
 }

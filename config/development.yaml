@@ -8,7 +8,7 @@ database:
   port: 5432
   user: postgres
   password: password
-  name: osmi
+  name: osmidb
   sslmode: disable
   max_open_conns: 25
   max_idle_conns: 5

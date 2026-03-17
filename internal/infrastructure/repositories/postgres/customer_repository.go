@@ -281,7 +281,7 @@ func (r *CustomerRepository) Find(ctx context.Context, filter *repository.Custom
 			return nil, 0, r.handleError(err, "failed to scan customer row")
 		}
 
-		// 🔴 NUEVO: Deserializar JSON
+		// Deserializar JSON
 		if len(commPrefsJSON) > 0 {
 			json.Unmarshal(commPrefsJSON, &customer.CommunicationPreferences)
 		}
