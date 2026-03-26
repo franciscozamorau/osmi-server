@@ -45,7 +45,7 @@ type VenueRepository interface {
 	// Estadísticas
 	GetStats(ctx context.Context, venueID int64) (*dto.VenueStatsResponse, error)
 	CountEvents(ctx context.Context, venueID int64) (int64, error)
-	GetUpcomingEvents(ctx context.Context, venueID int64, limit int) ([]*dto.VenueEvent, error)
+	//GetUpcomingEvents(ctx context.Context, venueID int64, limit int) ([]*dto.VenueEvent, error)
 	GetCapacityUtilization(ctx context.Context, venueID int64) (float64, error)
-	GetPopularVenues(ctx context.Context, limit int) ([]*dto.PopularVenue, error)
+	//GetPopularVenues(ctx context.Context, limit int) ([]*dto.PopularVenue, error)
 }

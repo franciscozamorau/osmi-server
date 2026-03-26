@@ -11,7 +11,6 @@ import (
 	"github.com/franciscozamorau/osmi-server/internal/api/dto"
 	"github.com/franciscozamorau/osmi-server/internal/api/dto/request"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
-	"github.com/franciscozamorau/osmi-server/internal/domain/enums"
 	"github.com/franciscozamorau/osmi-server/internal/domain/repository"
 	"github.com/google/uuid"
 )
@@ -45,8 +44,8 @@ func (s *TicketTypeService) CreateTicketType(ctx context.Context, req *request.C
 	}
 
 	// Validar que el evento permita nuevos tipos de ticket
-	if event.Status != string(enums.EventStatusDraft) && event.Status != string(enums.EventStatusScheduled) {
-		return nil, errors.New("cannot add ticket types to published or completed events")
+	if event.Status != "draft" && event.Status != "published" {
+		return nil, errors.New("cannot add ticket types to this event")
 	}
 
 	// Parsear fechas
@@ -74,17 +73,11 @@ func (s *TicketTypeService) CreateTicketType(ctx context.Context, req *request.C
 		return nil, errors.New("max per order must be greater or equal than min per order")
 	}
 
-	// Procesar beneficios (pueden venir como JSON string o como []string)
-	benefits, err := s.parseBenefits(req.Benefits)
-	if err != nil {
-		return nil, fmt.Errorf("invalid benefits format: %w", err)
-	}
+	// Procesar beneficios (ahora como []string)
+	benefits := s.parseBenefits(req.Benefits)
 
 	// Procesar reglas de validación
-	validationRules, err := s.parseValidationRules(req.ValidationRules)
-	if err != nil {
-		return nil, fmt.Errorf("invalid validation rules: %w", err)
-	}
+	validationRules := s.parseValidationRules(req.ValidationRules)
 
 	// Crear tipo de ticket
 	now := time.Now()
@@ -182,18 +175,10 @@ func (s *TicketTypeService) UpdateTicketType(ctx context.Context, ticketTypeID s
 		ticketType.IsHidden = *req.IsHidden
 	}
 	if req.Benefits != nil {
-		benefits, err := s.parseBenefits(*req.Benefits)
-		if err != nil {
-			return nil, fmt.Errorf("invalid benefits format: %w", err)
-		}
-		ticketType.Benefits = benefits
+		ticketType.Benefits = s.parseBenefits(*req.Benefits)
 	}
 	if req.ValidationRules != nil {
-		rules, err := s.parseValidationRules(*req.ValidationRules)
-		if err != nil {
-			return nil, fmt.Errorf("invalid validation rules: %w", err)
-		}
-		ticketType.ValidationRules = rules
+		ticketType.ValidationRules = s.parseValidationRules(*req.ValidationRules)
 	}
 
 	ticketType.UpdatedAt = time.Now()
@@ -340,42 +325,33 @@ func (s *TicketTypeService) parseTime(timeStr string) (*time.Time, error) {
 	return &t, nil
 }
 
-// parseBenefits procesa los beneficios que pueden venir en diferentes formatos
-func (s *TicketTypeService) parseBenefits(benefitsStr string) (*[]string, error) {
+// parseBenefits convierte string a []string
+func (s *TicketTypeService) parseBenefits(benefitsStr string) []string {
 	if benefitsStr == "" {
-		return &[]string{}, nil
+		return []string{}
 	}
 
 	// Intentar parsear como JSON array
 	var benefits []string
 	if err := json.Unmarshal([]byte(benefitsStr), &benefits); err == nil {
-		return &benefits, nil
+		return benefits
 	}
 
 	// Si no es JSON, tratar como un solo beneficio
-	return &[]string{benefitsStr}, nil
+	return []string{benefitsStr}
 }
 
-// parseValidationRules procesa las reglas de validación
-func (s *TicketTypeService) parseValidationRules(rulesStr string) (*entities.ValidationRules, error) {
+// parseValidationRules convierte string a ValidationRules
+func (s *TicketTypeService) parseValidationRules(rulesStr string) *entities.ValidationRules {
 	if rulesStr == "" {
-		return &entities.ValidationRules{
-			RequiresID:         false,
-			AgeRestriction:     0,
-			RequiresMembership: false,
-		}, nil
+		return nil
 	}
 
 	// Intentar parsear como JSON
 	var rules entities.ValidationRules
 	if err := json.Unmarshal([]byte(rulesStr), &rules); err != nil {
-		// Si no es JSON válido, retornar valores por defecto
-		return &entities.ValidationRules{
-			RequiresID:         false,
-			AgeRestriction:     0,
-			RequiresMembership: false,
-		}, nil
+		return nil
 	}
 
-	return &rules, nil
+	return &rules
 }

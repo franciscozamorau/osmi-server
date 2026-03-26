@@ -10,6 +10,7 @@ import (
 	"github.com/franciscozamorau/osmi-server/internal/api/dto/request"
 	"github.com/franciscozamorau/osmi-server/internal/application/services"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
+	"github.com/google/uuid" // ← IMPORT AGREGADO
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -86,17 +87,25 @@ func (h *TicketTypeHandler) CreateTicketType(ctx context.Context, req *osmi.Crea
 	return h.ticketTypeToProto(ticketType), nil
 }
 
-// GetTicketType obtiene un tipo de ticket por ID
+// GetTicketType obtiene un tipo de ticket por ID - CORREGIDO
 func (h *TicketTypeHandler) GetTicketType(ctx context.Context, req *osmi.GetTicketTypeRequest) (*osmi.TicketTypeResponse, error) {
+	// Validar que el ID no esté vacío
 	if req.Id == "" {
-		return nil, status.Error(codes.InvalidArgument, "id is required")
+		return nil, status.Error(codes.InvalidArgument, "ticket type id is required")
 	}
 
+	// Validar que sea un UUID válido
+	if _, err := uuid.Parse(req.Id); err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid ticket type id format")
+	}
+
+	// CORREGIDO: Usar GetTicketType, no GetByPublicID
 	ticketType, err := h.ticketTypeService.GetTicketType(ctx, req.Id)
 	if err != nil {
-		return nil, status.Error(codes.NotFound, err.Error())
+		return nil, status.Error(codes.NotFound, "ticket type not found")
 	}
 
+	// CORREGIDO: Usar ticketTypeToProto, no convertToProto
 	return h.ticketTypeToProto(ticketType), nil
 }
 
@@ -150,7 +159,14 @@ func (h *TicketTypeHandler) ListTicketTypes(ctx context.Context, req *osmi.ListT
 
 // ticketTypeToProto convierte entidad a proto
 func (h *TicketTypeHandler) ticketTypeToProto(tt *entities.TicketType) *osmi.TicketTypeResponse {
-	// CORREGIDO: Convertir int a int32
+	if tt == nil {
+		return nil
+	}
+
+	// CORREGIDO: Convertir pq.StringArray a []string
+	benefits := make([]string, len(tt.Benefits))
+	copy(benefits, tt.Benefits)
+
 	resp := &osmi.TicketTypeResponse{
 		Id:                tt.PublicID,
 		EventId:           "", // Necesitarías obtener el public_id del evento
@@ -169,7 +185,7 @@ func (h *TicketTypeHandler) ticketTypeToProto(tt *entities.TicketType) *osmi.Tic
 		SaleStartsAt:      timestamppb.New(tt.SaleStartsAt),
 		IsActive:          tt.IsActive,
 		IsSoldOut:         tt.IsSoldOut,
-		Benefits:          []string{}, // TODO: Convertir *[]string a []string
+		Benefits:          benefits, // ← AHORA ES []string CORRECTO
 		CreatedAt:         timestamppb.New(tt.CreatedAt),
 		UpdatedAt:         timestamppb.New(tt.UpdatedAt),
 	}

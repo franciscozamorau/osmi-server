@@ -3,15 +3,15 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/jmoiron/sqlx"
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/franciscozamorau/osmi-server/internal/api/dto"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
@@ -19,11 +19,11 @@ import (
 
 // VenueRepository implementa la interfaz repository.VenueRepository
 type VenueRepository struct {
-	db *sqlx.DB
+	db *pgxpool.Pool
 }
 
 // NewVenueRepository crea una nueva instancia
-func NewVenueRepository(db *sqlx.DB) *VenueRepository {
+func NewVenueRepository(db *pgxpool.Pool) *VenueRepository {
 	return &VenueRepository{
 		db: db,
 	}
@@ -35,22 +35,23 @@ func (r *VenueRepository) handleError(err error, context string) error {
 		return nil
 	}
 
-	if pqErr, ok := err.(*pq.Error); ok {
-		switch pqErr.Code {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("venue not found")
+	}
+
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
 		case "23505": // Unique violation
-			if strings.Contains(pqErr.Constraint, "venues_slug_key") {
+			if strings.Contains(pgErr.ConstraintName, "venues_slug_key") {
 				return fmt.Errorf("venue slug already exists")
 			}
-			if strings.Contains(pqErr.Constraint, "venues_public_uuid_key") {
+			if strings.Contains(pgErr.ConstraintName, "venues_public_uuid_key") {
 				return fmt.Errorf("venue public_uuid already exists")
 			}
 		case "23503": // Foreign key violation
 			return fmt.Errorf("referenced record not found: %w", err)
 		}
-	}
-
-	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("venue not found")
 	}
 
 	return fmt.Errorf("%s: %w", context, err)
@@ -100,8 +101,7 @@ func (r *VenueRepository) Create(ctx context.Context, venue *entities.Venue) err
 		RETURNING id, public_uuid, created_at, updated_at
 	`
 
-	err = r.db.QueryRowContext(
-		ctx, query,
+	err = r.db.QueryRow(ctx, query,
 		venue.Name,
 		venue.Slug,
 		venue.Description,
@@ -151,7 +151,7 @@ func (r *VenueRepository) FindByID(ctx context.Context, id int64) (*entities.Ven
 	var venue entities.Venue
 	var facilitiesJSON, accessibilityJSON, imagesJSON []byte
 
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
+	err := r.db.QueryRow(ctx, query, id).Scan(
 		&venue.ID, &venue.PublicID,
 		&venue.Name, &venue.Slug, &venue.Description, &venue.VenueType,
 		&venue.AddressLine1, &venue.AddressLine2, &venue.City, &venue.State, &venue.PostalCode, &venue.Country,
@@ -201,7 +201,7 @@ func (r *VenueRepository) FindByPublicID(ctx context.Context, publicID string) (
 	var venue entities.Venue
 	var facilitiesJSON, accessibilityJSON, imagesJSON []byte
 
-	err := r.db.QueryRowContext(ctx, query, publicID).Scan(
+	err := r.db.QueryRow(ctx, query, publicID).Scan(
 		&venue.ID, &venue.PublicID,
 		&venue.Name, &venue.Slug, &venue.Description, &venue.VenueType,
 		&venue.AddressLine1, &venue.AddressLine2, &venue.City, &venue.State, &venue.PostalCode, &venue.Country,
@@ -251,7 +251,7 @@ func (r *VenueRepository) FindBySlug(ctx context.Context, slug string) (*entitie
 	var venue entities.Venue
 	var facilitiesJSON, accessibilityJSON, imagesJSON []byte
 
-	err := r.db.QueryRowContext(ctx, query, slug).Scan(
+	err := r.db.QueryRow(ctx, query, slug).Scan(
 		&venue.ID, &venue.PublicID,
 		&venue.Name, &venue.Slug, &venue.Description, &venue.VenueType,
 		&venue.AddressLine1, &venue.AddressLine2, &venue.City, &venue.State, &venue.PostalCode, &venue.Country,
@@ -335,8 +335,7 @@ func (r *VenueRepository) Update(ctx context.Context, venue *entities.Venue) err
 		RETURNING updated_at
 	`
 
-	err = r.db.QueryRowContext(
-		ctx, query,
+	err = r.db.QueryRow(ctx, query,
 		venue.Name,
 		venue.Slug,
 		venue.Description,
@@ -370,11 +369,11 @@ func (r *VenueRepository) Update(ctx context.Context, venue *entities.Venue) err
 
 // Delete elimina permanentemente un venue
 func (r *VenueRepository) Delete(ctx context.Context, id int64) error {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM ticketing.venues WHERE id = $1`, id)
+	cmdTag, err := r.db.Exec(ctx, `DELETE FROM ticketing.venues WHERE id = $1`, id)
 	if err != nil {
 		return r.handleError(err, "failed to delete venue")
 	}
-	if rows, _ := result.RowsAffected(); rows == 0 {
+	if cmdTag.RowsAffected() == 0 {
 		return fmt.Errorf("venue not found")
 	}
 	return nil
@@ -383,11 +382,11 @@ func (r *VenueRepository) Delete(ctx context.Context, id int64) error {
 // SoftDelete desactiva un venue
 func (r *VenueRepository) SoftDelete(ctx context.Context, publicID string) error {
 	query := `UPDATE ticketing.venues SET is_active = false, updated_at = NOW() WHERE public_uuid = $1`
-	result, err := r.db.ExecContext(ctx, query, publicID)
+	cmdTag, err := r.db.Exec(ctx, query, publicID)
 	if err != nil {
 		return r.handleError(err, "failed to soft delete venue")
 	}
-	if rows, _ := result.RowsAffected(); rows == 0 {
+	if cmdTag.RowsAffected() == 0 {
 		return fmt.Errorf("venue not found")
 	}
 	return nil
@@ -396,7 +395,7 @@ func (r *VenueRepository) SoftDelete(ctx context.Context, publicID string) error
 // Exists verifica existencia por ID
 func (r *VenueRepository) Exists(ctx context.Context, id int64) (bool, error) {
 	var exists bool
-	err := r.db.GetContext(ctx, &exists, `SELECT EXISTS(SELECT 1 FROM ticketing.venues WHERE id = $1)`, id)
+	err := r.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM ticketing.venues WHERE id = $1)`, id).Scan(&exists)
 	if err != nil {
 		return false, r.handleError(err, "failed to check existence")
 	}
@@ -410,53 +409,54 @@ func (r *VenueRepository) Exists(ctx context.Context, id int64) (bool, error) {
 // List lista venues con filtros
 func (r *VenueRepository) List(ctx context.Context, filter dto.VenueFilter, pagination dto.Pagination) ([]*entities.Venue, int64, error) {
 	where := []string{"1=1"}
-	args := []interface{}{}
+	args := pgx.NamedArgs{}
 	argPos := 1
 
 	if filter.Name != "" {
-		where = append(where, fmt.Sprintf("name ILIKE $%d", argPos))
-		args = append(args, "%"+filter.Name+"%")
+		where = append(where, fmt.Sprintf("name ILIKE @name_%d", argPos))
+		args[fmt.Sprintf("name_%d", argPos)] = "%" + filter.Name + "%"
 		argPos++
 	}
 	if filter.City != "" {
-		where = append(where, fmt.Sprintf("city ILIKE $%d", argPos))
-		args = append(args, "%"+filter.City+"%")
+		where = append(where, fmt.Sprintf("city ILIKE @city_%d", argPos))
+		args[fmt.Sprintf("city_%d", argPos)] = "%" + filter.City + "%"
 		argPos++
 	}
 	if filter.State != "" {
-		where = append(where, fmt.Sprintf("state ILIKE $%d", argPos))
-		args = append(args, "%"+filter.State+"%")
+		where = append(where, fmt.Sprintf("state ILIKE @state_%d", argPos))
+		args[fmt.Sprintf("state_%d", argPos)] = "%" + filter.State + "%"
 		argPos++
 	}
 	if filter.Country != "" {
-		where = append(where, fmt.Sprintf("country = $%d", argPos))
-		args = append(args, filter.Country)
+		where = append(where, fmt.Sprintf("country = @country_%d", argPos))
+		args[fmt.Sprintf("country_%d", argPos)] = filter.Country
 		argPos++
 	}
 	if filter.VenueType != "" {
-		where = append(where, fmt.Sprintf("venue_type = $%d", argPos))
-		args = append(args, filter.VenueType)
+		where = append(where, fmt.Sprintf("venue_type = @type_%d", argPos))
+		args[fmt.Sprintf("type_%d", argPos)] = filter.VenueType
 		argPos++
 	}
 	if filter.IsActive != nil {
-		where = append(where, fmt.Sprintf("is_active = $%d", argPos))
-		args = append(args, *filter.IsActive)
+		where = append(where, fmt.Sprintf("is_active = @active_%d", argPos))
+		args[fmt.Sprintf("active_%d", argPos)] = *filter.IsActive
 		argPos++
 	}
 	if filter.MinCapacity != nil {
-		where = append(where, fmt.Sprintf("capacity >= $%d", argPos))
-		args = append(args, *filter.MinCapacity)
+		where = append(where, fmt.Sprintf("capacity >= @min_cap_%d", argPos))
+		args[fmt.Sprintf("min_cap_%d", argPos)] = *filter.MinCapacity
 		argPos++
 	}
 	if filter.MaxCapacity != nil {
-		where = append(where, fmt.Sprintf("capacity <= $%d", argPos))
-		args = append(args, *filter.MaxCapacity)
+		where = append(where, fmt.Sprintf("capacity <= @max_cap_%d", argPos))
+		args[fmt.Sprintf("max_cap_%d", argPos)] = *filter.MaxCapacity
 		argPos++
 	}
 	if filter.Search != "" {
-		where = append(where, fmt.Sprintf("(name ILIKE $%d OR description ILIKE $%d OR city ILIKE $%d)", argPos, argPos, argPos))
-		args = append(args, "%"+filter.Search+"%", "%"+filter.Search+"%", "%"+filter.Search+"%")
-		argPos += 3
+		searchTerm := "%" + filter.Search + "%"
+		where = append(where, fmt.Sprintf("(name ILIKE @search_%d OR description ILIKE @search_%d OR city ILIKE @search_%d)", argPos, argPos, argPos))
+		args[fmt.Sprintf("search_%d", argPos)] = searchTerm
+		argPos++
 	}
 
 	whereClause := strings.Join(where, " AND ")
@@ -464,7 +464,7 @@ func (r *VenueRepository) List(ctx context.Context, filter dto.VenueFilter, pagi
 	// Contar total
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM ticketing.venues WHERE %s", whereClause)
 	var total int64
-	err := r.db.GetContext(ctx, &total, countQuery, args...)
+	err := r.db.QueryRow(ctx, countQuery, args).Scan(&total)
 	if err != nil {
 		return nil, 0, r.handleError(err, "failed to count venues")
 	}
@@ -483,12 +483,13 @@ func (r *VenueRepository) List(ctx context.Context, filter dto.VenueFilter, pagi
 		FROM ticketing.venues
 		WHERE %s
 		ORDER BY name
-		LIMIT $%d OFFSET $%d
-	`, whereClause, argPos, argPos+1)
+		LIMIT @limit OFFSET @offset
+	`, whereClause)
 
-	args = append(args, pagination.PageSize, (pagination.Page-1)*pagination.PageSize)
+	args["limit"] = pagination.PageSize
+	args["offset"] = (pagination.Page - 1) * pagination.PageSize
 
-	rows, err := r.db.QueryxContext(ctx, query, args...)
+	rows, err := r.db.Query(ctx, query, args)
 	if err != nil {
 		return nil, 0, r.handleError(err, "failed to list venues")
 	}
@@ -587,7 +588,7 @@ func (r *VenueRepository) FindNearby(ctx context.Context, latitude, longitude fl
 		LIMIT $4
 	`
 
-	rows, err := r.db.QueryxContext(ctx, query, latitude, longitude, radiusKm, limit)
+	rows, err := r.db.Query(ctx, query, latitude, longitude, radiusKm, limit)
 	if err != nil {
 		return nil, r.handleError(err, "failed to find nearby venues")
 	}
@@ -635,13 +636,7 @@ func (r *VenueRepository) FindNearby(ctx context.Context, latitude, longitude fl
 
 // GetVenuesInRadius obtiene venues en un radio
 func (r *VenueRepository) GetVenuesInRadius(ctx context.Context, centerLat, centerLon float64, radiusKm float64, venueType *string) ([]*entities.Venue, error) {
-	filter := dto.VenueFilter{
-		VenueType: *venueType,
-	}
-	if venueType == nil {
-		filter.VenueType = ""
-	}
-	// Usar FindNearby con radio y filtro
+	// Usar FindNearby con radio
 	return r.FindNearby(ctx, centerLat, centerLon, radiusKm, 100)
 }
 
@@ -664,7 +659,7 @@ func (r *VenueRepository) GetVenuesInBounds(ctx context.Context, minLat, minLon,
 		ORDER BY name
 	`
 
-	rows, err := r.db.QueryxContext(ctx, query, minLat, minLon, maxLat, maxLon)
+	rows, err := r.db.Query(ctx, query, minLat, minLon, maxLat, maxLon)
 	if err != nil {
 		return nil, r.handleError(err, "failed to get venues in bounds")
 	}
@@ -709,7 +704,7 @@ func (r *VenueRepository) GetVenuesInBounds(ctx context.Context, minLat, minLon,
 }
 
 // ============================================================================
-// OPERACIONES ESPECÍFICAS (EXCEPTO IMÁGENES)
+// OPERACIONES ESPECÍFICAS
 // ============================================================================
 
 // UpdateCapacity actualiza la capacidad del venue
@@ -722,11 +717,11 @@ func (r *VenueRepository) UpdateCapacity(ctx context.Context, venueID int64, cap
 			updated_at = NOW()
 		WHERE id = $4
 	`
-	result, err := r.db.ExecContext(ctx, query, capacity, seating, standing, venueID)
+	cmdTag, err := r.db.Exec(ctx, query, capacity, seating, standing, venueID)
 	if err != nil {
 		return r.handleError(err, "failed to update capacity")
 	}
-	if rows, _ := result.RowsAffected(); rows == 0 {
+	if cmdTag.RowsAffected() == 0 {
 		return fmt.Errorf("venue not found")
 	}
 	return nil
@@ -744,11 +739,11 @@ func (r *VenueRepository) UpdateLocation(ctx context.Context, venueID int64, add
 			updated_at = NOW()
 		WHERE id = $6
 	`
-	result, err := r.db.ExecContext(ctx, query, address, city, state, postalCode, country, venueID)
+	cmdTag, err := r.db.Exec(ctx, query, address, city, state, postalCode, country, venueID)
 	if err != nil {
 		return r.handleError(err, "failed to update location")
 	}
-	if rows, _ := result.RowsAffected(); rows == 0 {
+	if cmdTag.RowsAffected() == 0 {
 		return fmt.Errorf("venue not found")
 	}
 	return nil
@@ -763,11 +758,11 @@ func (r *VenueRepository) UpdateCoordinates(ctx context.Context, venueID int64, 
 			updated_at = NOW()
 		WHERE id = $3
 	`
-	result, err := r.db.ExecContext(ctx, query, latitude, longitude, venueID)
+	cmdTag, err := r.db.Exec(ctx, query, latitude, longitude, venueID)
 	if err != nil {
 		return r.handleError(err, "failed to update coordinates")
 	}
-	if rows, _ := result.RowsAffected(); rows == 0 {
+	if cmdTag.RowsAffected() == 0 {
 		return fmt.Errorf("venue not found")
 	}
 	return nil
@@ -782,11 +777,11 @@ func (r *VenueRepository) UpdateContactInfo(ctx context.Context, venueID int64, 
 			updated_at = NOW()
 		WHERE id = $3
 	`
-	result, err := r.db.ExecContext(ctx, query, email, phone, venueID)
+	cmdTag, err := r.db.Exec(ctx, query, email, phone, venueID)
 	if err != nil {
 		return r.handleError(err, "failed to update contact info")
 	}
-	if rows, _ := result.RowsAffected(); rows == 0 {
+	if cmdTag.RowsAffected() == 0 {
 		return fmt.Errorf("venue not found")
 	}
 	return nil
@@ -798,12 +793,11 @@ func (r *VenueRepository) UpdateFacilities(ctx context.Context, venueID int64, f
 	if err != nil {
 		return fmt.Errorf("failed to marshal facilities: %w", err)
 	}
-	query := `UPDATE ticketing.venues SET facilities = $1, updated_at = NOW() WHERE id = $2`
-	result, err := r.db.ExecContext(ctx, query, jsonData, venueID)
+	cmdTag, err := r.db.Exec(ctx, `UPDATE ticketing.venues SET facilities = $1, updated_at = NOW() WHERE id = $2`, jsonData, venueID)
 	if err != nil {
 		return r.handleError(err, "failed to update facilities")
 	}
-	if rows, _ := result.RowsAffected(); rows == 0 {
+	if cmdTag.RowsAffected() == 0 {
 		return fmt.Errorf("venue not found")
 	}
 	return nil
@@ -815,12 +809,11 @@ func (r *VenueRepository) UpdateAccessibility(ctx context.Context, venueID int64
 	if err != nil {
 		return fmt.Errorf("failed to marshal accessibility features: %w", err)
 	}
-	query := `UPDATE ticketing.venues SET accessibility_features = $1, updated_at = NOW() WHERE id = $2`
-	result, err := r.db.ExecContext(ctx, query, jsonData, venueID)
+	cmdTag, err := r.db.Exec(ctx, `UPDATE ticketing.venues SET accessibility_features = $1, updated_at = NOW() WHERE id = $2`, jsonData, venueID)
 	if err != nil {
 		return r.handleError(err, "failed to update accessibility features")
 	}
-	if rows, _ := result.RowsAffected(); rows == 0 {
+	if cmdTag.RowsAffected() == 0 {
 		return fmt.Errorf("venue not found")
 	}
 	return nil
@@ -838,7 +831,7 @@ func (r *VenueRepository) GetDistance(ctx context.Context, venueID int64, latitu
 		FROM ticketing.venues
 		WHERE id = $3 AND latitude IS NOT NULL AND longitude IS NOT NULL
 	`
-	err := r.db.GetContext(ctx, &distance, query, latitude, longitude, venueID)
+	err := r.db.QueryRow(ctx, query, latitude, longitude, venueID).Scan(&distance)
 	if err != nil {
 		return 0, r.handleError(err, "failed to calculate distance")
 	}
@@ -853,18 +846,18 @@ func (r *VenueRepository) GetDistance(ctx context.Context, venueID int64, latitu
 func (r *VenueRepository) GetStats(ctx context.Context, venueID int64) (*dto.VenueStatsResponse, error) {
 	// Contar eventos en este venue
 	var eventCount int64
-	err := r.db.GetContext(ctx, &eventCount, `SELECT COUNT(*) FROM ticketing.events WHERE venue_id = $1`, venueID)
+	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM ticketing.events WHERE venue_id = $1`, venueID).Scan(&eventCount)
 	if err != nil {
 		return nil, r.handleError(err, "failed to count events")
 	}
 
 	// Calcular capacidad promedio de los eventos
 	var avgCapacity float64
-	err = r.db.GetContext(ctx, &avgCapacity, `
+	err = r.db.QueryRow(ctx, `
 		SELECT COALESCE(AVG(max_attendees), 0)
 		FROM ticketing.events
 		WHERE venue_id = $1 AND max_attendees IS NOT NULL
-	`, venueID)
+	`, venueID).Scan(&avgCapacity)
 	if err != nil {
 		return nil, r.handleError(err, "failed to calculate avg capacity")
 	}
@@ -883,30 +876,51 @@ func (r *VenueRepository) GetStats(ctx context.Context, venueID int64) (*dto.Ven
 // CountEvents cuenta eventos en un venue
 func (r *VenueRepository) CountEvents(ctx context.Context, venueID int64) (int64, error) {
 	var count int64
-	err := r.db.GetContext(ctx, &count, `SELECT COUNT(*) FROM ticketing.events WHERE venue_id = $1`, venueID)
+	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM ticketing.events WHERE venue_id = $1`, venueID).Scan(&count)
 	if err != nil {
 		return 0, r.handleError(err, "failed to count events")
 	}
 	return count, nil
 }
 
-// GetUpcomingEvents obtiene próximos eventos en el venue
+// GetUpcomingEvents está comentado porque dto.VenueEvent no existe
+// Si se necesita en el futuro, crear el DTO correspondiente
+/*
 func (r *VenueRepository) GetUpcomingEvents(ctx context.Context, venueID int64, limit int) ([]*dto.VenueEvent, error) {
 	query := `
-			SELECT 
-				id, public_uuid, name, slug, start_date, end_date
-			FROM ticketing.events
-			WHERE venue_id = $1 AND start_date > NOW()
-			ORDER BY start_date
-			LIMIT $2
-		`
-	var events []*dto.VenueEvent
-	err := r.db.SelectContext(ctx, &events, query, venueID, limit)
+		SELECT
+			id, public_uuid, name, slug, start_date, end_date
+		FROM ticketing.events
+		WHERE venue_id = $1 AND start_date > NOW()
+		ORDER BY start_date
+		LIMIT $2
+	`
+	rows, err := r.db.Query(ctx, query, venueID, limit)
 	if err != nil {
 		return nil, r.handleError(err, "failed to get upcoming events")
 	}
+	defer rows.Close()
+
+	var events []*dto.VenueEvent
+	for rows.Next() {
+		var event dto.VenueEvent
+		err = rows.Scan(
+			&event.ID,
+			&event.PublicID,
+			&event.Name,
+			&event.Slug,
+			&event.StartDate,
+			&event.EndDate,
+		)
+		if err != nil {
+			return nil, r.handleError(err, "failed to scan event")
+		}
+		events = append(events, &event)
+	}
+
 	return events, nil
 }
+*/
 
 // GetCapacityUtilization obtiene el porcentaje de utilización de capacidad
 func (r *VenueRepository) GetCapacityUtilization(ctx context.Context, venueID int64) (float64, error) {
@@ -917,18 +931,20 @@ func (r *VenueRepository) GetCapacityUtilization(ctx context.Context, venueID in
 				(SELECT SUM(max_attendees) FROM ticketing.events WHERE venue_id = $1 AND start_date > NOW()) * 1.0 /
 				(SELECT capacity FROM ticketing.venues WHERE id = $1),
 			0)
-		`
-	err := r.db.GetContext(ctx, &utilization, query, venueID)
+	`
+	err := r.db.QueryRow(ctx, query, venueID).Scan(&utilization)
 	if err != nil {
 		return 0, r.handleError(err, "failed to calculate capacity utilization")
 	}
 	return utilization, nil
 }
 
-// GetPopularVenues obtiene los venues más populares
+// GetPopularVenues está comentado porque dto.PopularVenue no existe
+// Si se necesita en el futuro, crear el DTO correspondiente
+/*
 func (r *VenueRepository) GetPopularVenues(ctx context.Context, limit int) ([]*dto.PopularVenue, error) {
 	query := `
-		SELECT 
+		SELECT
 			v.id, v.name, v.slug, v.city, v.country,
 			COUNT(DISTINCT e.id) as event_count,
 			COALESCE(SUM(tt.sold_quantity), 0) as tickets_sold
@@ -940,23 +956,43 @@ func (r *VenueRepository) GetPopularVenues(ctx context.Context, limit int) ([]*d
 		ORDER BY tickets_sold DESC, event_count DESC
 		LIMIT $1
 	`
-	var venues []*dto.PopularVenue
-	err := r.db.SelectContext(ctx, &venues, query, limit)
+	rows, err := r.db.Query(ctx, query, limit)
 	if err != nil {
 		return nil, r.handleError(err, "failed to get popular venues")
 	}
+	defer rows.Close()
+
+	var venues []*dto.PopularVenue
+	for rows.Next() {
+		var venue dto.PopularVenue
+		err = rows.Scan(
+			&venue.ID,
+			&venue.Name,
+			&venue.Slug,
+			&venue.City,
+			&venue.Country,
+			&venue.EventCount,
+			&venue.TicketsSold,
+		)
+		if err != nil {
+			return nil, r.handleError(err, "failed to scan popular venue")
+		}
+		venues = append(venues, &venue)
+	}
+
 	return venues, nil
 }
+*/
 
 // ============================================================================
-// OPERACIONES CON IMÁGENES (VERSIÓN PROFESIONAL - ÚNICA)
+// OPERACIONES CON IMÁGENES
 // ============================================================================
 
-// AddImage agrega una imagen al venue con metadatos completos
+// AddImage agrega una imagen al venue
 func (r *VenueRepository) AddImage(ctx context.Context, venueID int64, image entities.VenueImage) error {
 	// Obtener imágenes actuales
 	var imagesJSON []byte
-	err := r.db.GetContext(ctx, &imagesJSON, `SELECT images FROM ticketing.venues WHERE id = $1`, venueID)
+	err := r.db.QueryRow(ctx, `SELECT images FROM ticketing.venues WHERE id = $1`, venueID).Scan(&imagesJSON)
 	if err != nil {
 		return r.handleError(err, "failed to get images")
 	}
@@ -988,7 +1024,7 @@ func (r *VenueRepository) AddImage(ctx context.Context, venueID int64, image ent
 		return fmt.Errorf("failed to marshal images: %w", err)
 	}
 
-	_, err = r.db.ExecContext(ctx,
+	_, err = r.db.Exec(ctx,
 		`UPDATE ticketing.venues SET images = $1, updated_at = NOW() WHERE id = $2`,
 		newImagesJSON, venueID)
 	return r.handleError(err, "failed to add image")
@@ -998,7 +1034,7 @@ func (r *VenueRepository) AddImage(ctx context.Context, venueID int64, image ent
 func (r *VenueRepository) RemoveImage(ctx context.Context, venueID int64, imageURL string) error {
 	// Obtener imágenes actuales
 	var imagesJSON []byte
-	err := r.db.GetContext(ctx, &imagesJSON, `SELECT images FROM ticketing.venues WHERE id = $1`, venueID)
+	err := r.db.QueryRow(ctx, `SELECT images FROM ticketing.venues WHERE id = $1`, venueID).Scan(&imagesJSON)
 	if err != nil {
 		return r.handleError(err, "failed to get images")
 	}
@@ -1038,7 +1074,7 @@ func (r *VenueRepository) RemoveImage(ctx context.Context, venueID int64, imageU
 		return fmt.Errorf("failed to marshal images: %w", err)
 	}
 
-	_, err = r.db.ExecContext(ctx,
+	_, err = r.db.Exec(ctx,
 		`UPDATE ticketing.venues SET images = $1, updated_at = NOW() WHERE id = $2`,
 		newImagesJSON, venueID)
 	return r.handleError(err, "failed to remove image")
@@ -1048,7 +1084,7 @@ func (r *VenueRepository) RemoveImage(ctx context.Context, venueID int64, imageU
 func (r *VenueRepository) SetMainImage(ctx context.Context, venueID int64, imageURL string) error {
 	// Obtener imágenes actuales
 	var imagesJSON []byte
-	err := r.db.GetContext(ctx, &imagesJSON, `SELECT images FROM ticketing.venues WHERE id = $1`, venueID)
+	err := r.db.QueryRow(ctx, `SELECT images FROM ticketing.venues WHERE id = $1`, venueID).Scan(&imagesJSON)
 	if err != nil {
 		return r.handleError(err, "failed to get images")
 	}
@@ -1081,7 +1117,7 @@ func (r *VenueRepository) SetMainImage(ctx context.Context, venueID int64, image
 		return fmt.Errorf("failed to marshal images: %w", err)
 	}
 
-	_, err = r.db.ExecContext(ctx,
+	_, err = r.db.Exec(ctx,
 		`UPDATE ticketing.venues SET images = $1, updated_at = NOW() WHERE id = $2`,
 		newImagesJSON, venueID)
 	return r.handleError(err, "failed to set main image")
@@ -1090,7 +1126,7 @@ func (r *VenueRepository) SetMainImage(ctx context.Context, venueID int64, image
 // GetImages obtiene todas las imágenes de un venue
 func (r *VenueRepository) GetImages(ctx context.Context, venueID int64) ([]entities.VenueImage, error) {
 	var imagesJSON []byte
-	err := r.db.GetContext(ctx, &imagesJSON, `SELECT images FROM ticketing.venues WHERE id = $1`, venueID)
+	err := r.db.QueryRow(ctx, `SELECT images FROM ticketing.venues WHERE id = $1`, venueID).Scan(&imagesJSON)
 	if err != nil {
 		return nil, r.handleError(err, "failed to get images")
 	}
@@ -1109,7 +1145,7 @@ func (r *VenueRepository) GetImages(ctx context.Context, venueID int64) ([]entit
 func (r *VenueRepository) UpdateImageMetadata(ctx context.Context, venueID int64, imageURL string, caption *string, imageType *string) error {
 	// Obtener imágenes actuales
 	var imagesJSON []byte
-	err := r.db.GetContext(ctx, &imagesJSON, `SELECT images FROM ticketing.venues WHERE id = $1`, venueID)
+	err := r.db.QueryRow(ctx, `SELECT images FROM ticketing.venues WHERE id = $1`, venueID).Scan(&imagesJSON)
 	if err != nil {
 		return r.handleError(err, "failed to get images")
 	}
@@ -1146,7 +1182,7 @@ func (r *VenueRepository) UpdateImageMetadata(ctx context.Context, venueID int64
 		return fmt.Errorf("failed to marshal images: %w", err)
 	}
 
-	_, err = r.db.ExecContext(ctx,
+	_, err = r.db.Exec(ctx,
 		`UPDATE ticketing.venues SET images = $1, updated_at = NOW() WHERE id = $2`,
 		newImagesJSON, venueID)
 	return r.handleError(err, "failed to update image metadata")

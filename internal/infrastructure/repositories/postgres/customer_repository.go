@@ -1,15 +1,17 @@
+// internal/infrastructure/repositories/postgres/customer_repository.go
 package postgres
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
-	"github.com/jmoiron/sqlx"
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 	"github.com/franciscozamorau/osmi-server/internal/domain/repository"
@@ -17,11 +19,11 @@ import (
 
 // CustomerRepository implementa la interfaz repository.CustomerRepository usando PostgreSQL
 type CustomerRepository struct {
-	db *sqlx.DB
+	db *pgxpool.Pool
 }
 
 // NewCustomerRepository crea una nueva instancia del repositorio
-func NewCustomerRepository(db *sqlx.DB) *CustomerRepository {
+func NewCustomerRepository(db *pgxpool.Pool) *CustomerRepository {
 	return &CustomerRepository{
 		db: db,
 	}
@@ -33,22 +35,24 @@ func (r *CustomerRepository) handleError(err error, context string) error {
 		return nil
 	}
 
-	if pqErr, ok := err.(*pq.Error); ok {
-		switch pqErr.Code {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return repository.ErrCustomerNotFound
+	}
+
+	// Verificar si es un error de PostgreSQL con código
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
 		case "23505": // Unique violation
-			if strings.Contains(pqErr.Constraint, "customers_email_key") {
+			if strings.Contains(pgErr.ConstraintName, "customers_email_key") {
 				return repository.ErrCustomerEmailExists
 			}
-			if strings.Contains(pqErr.Constraint, "customers_public_uuid_key") {
+			if strings.Contains(pgErr.ConstraintName, "customers_public_uuid_key") {
 				return repository.ErrCustomerAlreadyLinked
 			}
 		case "23503": // Foreign key violation
 			return fmt.Errorf("referenced user not found: %w", err)
 		}
-	}
-
-	if errors.Is(err, sql.ErrNoRows) {
-		return repository.ErrCustomerNotFound
 	}
 
 	return fmt.Errorf("%s: %w", context, err)
@@ -75,32 +79,32 @@ func (r *CustomerRepository) Find(ctx context.Context, filter *repository.Custom
 	countQuery := `SELECT COUNT(*) FROM crm.customers WHERE 1=1`
 
 	var conditions []string
-	var args []interface{}
+	args := pgx.NamedArgs{}
 	argPos := 1
 
 	if filter != nil {
 		// Filtros por ID
 		if len(filter.IDs) > 0 {
-			conditions = append(conditions, fmt.Sprintf("id = ANY($%d)", argPos))
-			args = append(args, pq.Array(filter.IDs))
+			conditions = append(conditions, fmt.Sprintf("id = ANY(@id_%d)", argPos))
+			args[fmt.Sprintf("id_%d", argPos)] = filter.IDs
 			argPos++
 		}
 
 		if len(filter.PublicIDs) > 0 {
-			conditions = append(conditions, fmt.Sprintf("public_uuid = ANY($%d)", argPos))
-			args = append(args, pq.Array(filter.PublicIDs))
+			conditions = append(conditions, fmt.Sprintf("public_uuid = ANY(@public_%d)", argPos))
+			args[fmt.Sprintf("public_%d", argPos)] = filter.PublicIDs
 			argPos++
 		}
 
 		if filter.UserID != nil {
-			conditions = append(conditions, fmt.Sprintf("user_id = $%d", argPos))
-			args = append(args, *filter.UserID)
+			conditions = append(conditions, fmt.Sprintf("user_id = @user_%d", argPos))
+			args[fmt.Sprintf("user_%d", argPos)] = *filter.UserID
 			argPos++
 		}
 
 		if filter.Email != nil {
-			conditions = append(conditions, fmt.Sprintf("email = $%d", argPos))
-			args = append(args, *filter.Email)
+			conditions = append(conditions, fmt.Sprintf("email = @email_%d", argPos))
+			args[fmt.Sprintf("email_%d", argPos)] = *filter.Email
 			argPos++
 		}
 
@@ -108,97 +112,95 @@ func (r *CustomerRepository) Find(ctx context.Context, filter *repository.Custom
 		if filter.SearchTerm != nil && *filter.SearchTerm != "" {
 			searchTerm := "%" + *filter.SearchTerm + "%"
 			conditions = append(conditions, fmt.Sprintf(
-				"(full_name ILIKE $%d OR email ILIKE $%d OR company_name ILIKE $%d OR tax_id ILIKE $%d)",
+				"(full_name ILIKE @search_%d OR email ILIKE @search_%d OR company_name ILIKE @search_%d OR tax_id ILIKE @search_%d)",
 				argPos, argPos, argPos, argPos,
 			))
-			args = append(args, searchTerm, searchTerm, searchTerm, searchTerm)
-			argPos += 4
+			args[fmt.Sprintf("search_%d", argPos)] = searchTerm
+			argPos++
 		}
 
 		if filter.FullName != nil {
-			conditions = append(conditions, fmt.Sprintf("full_name ILIKE $%d", argPos))
-			args = append(args, "%"+*filter.FullName+"%")
+			conditions = append(conditions, fmt.Sprintf("full_name ILIKE @fullname_%d", argPos))
+			args[fmt.Sprintf("fullname_%d", argPos)] = "%" + *filter.FullName + "%"
 			argPos++
 		}
 
 		if filter.CompanyName != nil {
-			conditions = append(conditions, fmt.Sprintf("company_name ILIKE $%d", argPos))
-			args = append(args, "%"+*filter.CompanyName+"%")
+			conditions = append(conditions, fmt.Sprintf("company_name ILIKE @company_%d", argPos))
+			args[fmt.Sprintf("company_%d", argPos)] = "%" + *filter.CompanyName + "%"
 			argPos++
 		}
 
 		if filter.Country != nil {
-			conditions = append(conditions, fmt.Sprintf("country = $%d", argPos))
-			args = append(args, *filter.Country)
+			conditions = append(conditions, fmt.Sprintf("country = @country_%d", argPos))
+			args[fmt.Sprintf("country_%d", argPos)] = *filter.Country
 			argPos++
 		}
 
 		if filter.City != nil {
-			conditions = append(conditions, fmt.Sprintf("city ILIKE $%d", argPos))
-			args = append(args, "%"+*filter.City+"%")
+			conditions = append(conditions, fmt.Sprintf("city ILIKE @city_%d", argPos))
+			args[fmt.Sprintf("city_%d", argPos)] = "%" + *filter.City + "%"
 			argPos++
 		}
 
-		// Filtros booleanos
 		if filter.IsActive != nil {
-			conditions = append(conditions, fmt.Sprintf("is_active = $%d", argPos))
-			args = append(args, *filter.IsActive)
+			conditions = append(conditions, fmt.Sprintf("is_active = @active_%d", argPos))
+			args[fmt.Sprintf("active_%d", argPos)] = *filter.IsActive
 			argPos++
 		}
 
 		if filter.IsVIP != nil {
-			conditions = append(conditions, fmt.Sprintf("is_vip = $%d", argPos))
-			args = append(args, *filter.IsVIP)
+			conditions = append(conditions, fmt.Sprintf("is_vip = @vip_%d", argPos))
+			args[fmt.Sprintf("vip_%d", argPos)] = *filter.IsVIP
 			argPos++
 		}
 
 		if filter.RequiresInvoice != nil {
-			conditions = append(conditions, fmt.Sprintf("requires_invoice = $%d", argPos))
-			args = append(args, *filter.RequiresInvoice)
+			conditions = append(conditions, fmt.Sprintf("requires_invoice = @invoice_%d", argPos))
+			args[fmt.Sprintf("invoice_%d", argPos)] = *filter.RequiresInvoice
 			argPos++
 		}
 
 		if filter.CustomerSegment != nil {
-			conditions = append(conditions, fmt.Sprintf("customer_segment = $%d", argPos))
-			args = append(args, *filter.CustomerSegment)
+			conditions = append(conditions, fmt.Sprintf("customer_segment = @segment_%d", argPos))
+			args[fmt.Sprintf("segment_%d", argPos)] = *filter.CustomerSegment
 			argPos++
 		}
 
 		// Filtros de fechas
 		if filter.CreatedFrom != nil {
-			conditions = append(conditions, fmt.Sprintf("created_at >= $%d", argPos))
-			args = append(args, *filter.CreatedFrom)
+			conditions = append(conditions, fmt.Sprintf("created_at >= @created_from_%d", argPos))
+			args[fmt.Sprintf("created_from_%d", argPos)] = *filter.CreatedFrom
 			argPos++
 		}
 
 		if filter.CreatedTo != nil {
-			conditions = append(conditions, fmt.Sprintf("created_at <= $%d", argPos))
-			args = append(args, *filter.CreatedTo)
+			conditions = append(conditions, fmt.Sprintf("created_at <= @created_to_%d", argPos))
+			args[fmt.Sprintf("created_to_%d", argPos)] = *filter.CreatedTo
 			argPos++
 		}
 
 		if filter.LastPurchaseFrom != nil {
-			conditions = append(conditions, fmt.Sprintf("last_purchase_at >= $%d", argPos))
-			args = append(args, *filter.LastPurchaseFrom)
+			conditions = append(conditions, fmt.Sprintf("last_purchase_at >= @purchase_from_%d", argPos))
+			args[fmt.Sprintf("purchase_from_%d", argPos)] = *filter.LastPurchaseFrom
 			argPos++
 		}
 
 		if filter.LastPurchaseTo != nil {
-			conditions = append(conditions, fmt.Sprintf("last_purchase_at <= $%d", argPos))
-			args = append(args, *filter.LastPurchaseTo)
+			conditions = append(conditions, fmt.Sprintf("last_purchase_at <= @purchase_to_%d", argPos))
+			args[fmt.Sprintf("purchase_to_%d", argPos)] = *filter.LastPurchaseTo
 			argPos++
 		}
 
-		// Filtros de estadísticas
 		if filter.MinTotalSpent != nil {
-			conditions = append(conditions, fmt.Sprintf("total_spent >= $%d", argPos))
-			args = append(args, *filter.MinTotalSpent)
+			conditions = append(conditions, fmt.Sprintf("total_spent >= @min_spent_%d", argPos))
+			args[fmt.Sprintf("min_spent_%d", argPos)] = *filter.MinTotalSpent
 			argPos++
 		}
 
 		if filter.MaxTotalSpent != nil {
-			conditions = append(conditions, fmt.Sprintf("total_spent <= $%d", argPos))
-			args = append(args, *filter.MaxTotalSpent)
+			conditions = append(conditions, fmt.Sprintf("total_spent <= @max_spent_%d", argPos))
+			args[fmt.Sprintf("max_spent_%d", argPos)] = *filter.MaxTotalSpent
 			argPos++
 		}
 	}
@@ -212,7 +214,7 @@ func (r *CustomerRepository) Find(ctx context.Context, filter *repository.Custom
 
 	// Obtener total
 	var total int64
-	err := r.db.GetContext(ctx, &total, countQuery, args...)
+	err := r.db.QueryRow(ctx, countQuery, args).Scan(&total)
 	if err != nil {
 		return nil, 0, r.handleError(err, "failed to count customers")
 	}
@@ -240,20 +242,27 @@ func (r *CustomerRepository) Find(ctx context.Context, filter *repository.Custom
 		}
 		baseQuery += fmt.Sprintf(" ORDER BY %s %s", sortBy, sortOrder)
 
-		if filter.Limit > 0 {
-			baseQuery += fmt.Sprintf(" LIMIT $%d", argPos)
-			args = append(args, filter.Limit)
-			argPos++
+		// Establecer límite
+		limit := filter.Limit
+		if limit <= 0 {
+			limit = 20
 		}
+
+		if limit > 0 {
+			baseQuery += " LIMIT @limit"
+			args["limit"] = limit
+		}
+
 		if filter.Offset > 0 {
-			baseQuery += fmt.Sprintf(" OFFSET $%d", argPos)
-			args = append(args, filter.Offset)
-			argPos++
+			baseQuery += " OFFSET @offset"
+			args["offset"] = filter.Offset
 		}
+	} else {
+		baseQuery += " ORDER BY created_at DESC LIMIT 20"
 	}
 
 	// Ejecutar query
-	rows, err := r.db.QueryxContext(ctx, baseQuery, args...)
+	rows, err := r.db.Query(ctx, baseQuery, args)
 	if err != nil {
 		return nil, 0, r.handleError(err, "failed to find customers")
 	}
@@ -263,23 +272,57 @@ func (r *CustomerRepository) Find(ctx context.Context, filter *repository.Custom
 	for rows.Next() {
 		var customer entities.Customer
 		var commPrefsJSON []byte
+		var userID *int64
+		var phone *string
+		var companyName *string
+		var addressLine1 *string
+		var addressLine2 *string
+		var city *string
+		var state *string
+		var postalCode *string
+		var country *string
+		var taxID *string
+		var taxIDType *string
+		var taxName *string
+		var firstOrderAt *time.Time
+		var lastOrderAt *time.Time
+		var lastPurchaseAt *time.Time
+		var vipSince *time.Time
 
 		err = rows.Scan(
-			&customer.ID, &customer.PublicID, &customer.UserID,
-			&customer.FullName, &customer.Email, &customer.Phone,
-			&customer.CompanyName, &customer.AddressLine1, &customer.AddressLine2,
-			&customer.City, &customer.State, &customer.PostalCode, &customer.Country,
-			&customer.TaxID, &customer.TaxIDType, &customer.TaxName, &customer.RequiresInvoice,
-			&commPrefsJSON, // ← SCAN COMO BYTES
+			&customer.ID, &customer.PublicID, &userID,
+			&customer.FullName, &customer.Email, &phone,
+			&companyName, &addressLine1, &addressLine2,
+			&city, &state, &postalCode, &country,
+			&taxID, &taxIDType, &taxName, &customer.RequiresInvoice,
+			&commPrefsJSON,
 			&customer.TotalSpent, &customer.TotalOrders, &customer.TotalTickets, &customer.AvgOrderValue,
-			&customer.FirstOrderAt, &customer.LastOrderAt, &customer.LastPurchaseAt,
-			&customer.IsActive, &customer.IsVIP, &customer.VIPSince,
+			&firstOrderAt, &lastOrderAt, &lastPurchaseAt,
+			&customer.IsActive, &customer.IsVIP, &vipSince,
 			&customer.CustomerSegment, &customer.LifetimeValue,
 			&customer.CreatedAt, &customer.UpdatedAt,
 		)
 		if err != nil {
 			return nil, 0, r.handleError(err, "failed to scan customer row")
 		}
+
+		// Asignar campos NULL
+		customer.UserID = userID
+		customer.Phone = phone
+		customer.CompanyName = companyName
+		customer.AddressLine1 = addressLine1
+		customer.AddressLine2 = addressLine2
+		customer.City = city
+		customer.State = state
+		customer.PostalCode = postalCode
+		customer.Country = country
+		customer.TaxID = taxID
+		customer.TaxIDType = taxIDType
+		customer.TaxName = taxName
+		customer.FirstOrderAt = firstOrderAt
+		customer.LastOrderAt = lastOrderAt
+		customer.LastPurchaseAt = lastPurchaseAt
+		customer.VIPSince = vipSince
 
 		// Deserializar JSON
 		if len(commPrefsJSON) > 0 {
@@ -402,8 +445,7 @@ func (r *CustomerRepository) Create(ctx context.Context, customer *entities.Cust
 		return fmt.Errorf("failed to marshal communication preferences: %w", err)
 	}
 
-	err = r.db.QueryRowContext(
-		ctx, query,
+	err = r.db.QueryRow(ctx, query,
 		customer.UserID, customer.FullName, customer.Email, customer.Phone,
 		customer.CompanyName, customer.AddressLine1, customer.AddressLine2,
 		customer.City, customer.State, customer.PostalCode, customer.Country,
@@ -424,14 +466,6 @@ func (r *CustomerRepository) Create(ctx context.Context, customer *entities.Cust
 
 // Update actualiza un cliente existente
 func (r *CustomerRepository) Update(ctx context.Context, customer *entities.Customer) error {
-	exists, err := r.Exists(ctx, customer.ID)
-	if err != nil {
-		return err
-	}
-	if !exists {
-		return repository.ErrCustomerNotFound
-	}
-
 	prefsJSON, err := json.Marshal(customer.CommunicationPreferences)
 	if err != nil {
 		return fmt.Errorf("failed to marshal communication preferences: %w", err)
@@ -465,8 +499,7 @@ func (r *CustomerRepository) Update(ctx context.Context, customer *entities.Cust
 		RETURNING updated_at
 	`
 
-	err = r.db.QueryRowContext(
-		ctx, query,
+	err = r.db.QueryRow(ctx, query,
 		customer.UserID, customer.FullName, customer.Email, customer.Phone,
 		customer.CompanyName, customer.AddressLine1, customer.AddressLine2,
 		customer.City, customer.State, customer.PostalCode, customer.Country,
@@ -486,13 +519,12 @@ func (r *CustomerRepository) Update(ctx context.Context, customer *entities.Cust
 
 // Delete elimina permanentemente un cliente
 func (r *CustomerRepository) Delete(ctx context.Context, id int64) error {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM crm.customers WHERE id = $1`, id)
+	cmdTag, err := r.db.Exec(ctx, `DELETE FROM crm.customers WHERE id = $1`, id)
 	if err != nil {
 		return r.handleError(err, "failed to delete customer")
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
+	if cmdTag.RowsAffected() == 0 {
 		return repository.ErrCustomerNotFound
 	}
 
@@ -506,13 +538,12 @@ func (r *CustomerRepository) SoftDelete(ctx context.Context, publicID string) er
 		SET is_active = false, updated_at = NOW()
 		WHERE public_uuid = $1 AND is_active = true
 	`
-	result, err := r.db.ExecContext(ctx, query, publicID)
+	cmdTag, err := r.db.Exec(ctx, query, publicID)
 	if err != nil {
 		return r.handleError(err, "failed to soft delete customer")
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
+	if cmdTag.RowsAffected() == 0 {
 		return repository.ErrCustomerNotFound
 	}
 
@@ -522,7 +553,8 @@ func (r *CustomerRepository) SoftDelete(ctx context.Context, publicID string) er
 // Exists verifica si existe un cliente con el ID dado
 func (r *CustomerRepository) Exists(ctx context.Context, id int64) (bool, error) {
 	var exists bool
-	err := r.db.GetContext(ctx, &exists, `SELECT EXISTS(SELECT 1 FROM crm.customers WHERE id = $1)`, id)
+	query := `SELECT EXISTS(SELECT 1 FROM crm.customers WHERE id = $1)`
+	err := r.db.QueryRow(ctx, query, id).Scan(&exists)
 	if err != nil {
 		return false, r.handleError(err, "failed to check customer existence")
 	}
@@ -532,7 +564,8 @@ func (r *CustomerRepository) Exists(ctx context.Context, id int64) (bool, error)
 // ExistsByEmail verifica si existe un cliente con el email dado
 func (r *CustomerRepository) ExistsByEmail(ctx context.Context, email string) (bool, error) {
 	var exists bool
-	err := r.db.GetContext(ctx, &exists, `SELECT EXISTS(SELECT 1 FROM crm.customers WHERE email = $1)`, email)
+	query := `SELECT EXISTS(SELECT 1 FROM crm.customers WHERE email = $1)`
+	err := r.db.QueryRow(ctx, query, email).Scan(&exists)
 	if err != nil {
 		return false, r.handleError(err, "failed to check email existence")
 	}
@@ -553,13 +586,12 @@ func (r *CustomerRepository) UpdateStats(ctx context.Context, customerID int64, 
 			updated_at = NOW()
 		WHERE id = $2
 	`
-	result, err := r.db.ExecContext(ctx, query, amount, customerID)
+	cmdTag, err := r.db.Exec(ctx, query, amount, customerID)
 	if err != nil {
 		return r.handleError(err, "failed to update customer stats")
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
+	if cmdTag.RowsAffected() == 0 {
 		return repository.ErrCustomerNotFound
 	}
 
@@ -581,13 +613,12 @@ func (r *CustomerRepository) SetVIP(ctx context.Context, customerID int64, isVIP
 			updated_at = NOW()
 		WHERE id = $2
 	`
-	result, err := r.db.ExecContext(ctx, query, isVIP, customerID)
+	cmdTag, err := r.db.Exec(ctx, query, isVIP, customerID)
 	if err != nil {
 		return r.handleError(err, "failed to set VIP status")
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
+	if cmdTag.RowsAffected() == 0 {
 		return repository.ErrCustomerNotFound
 	}
 
@@ -607,13 +638,12 @@ func (r *CustomerRepository) UpdatePreferences(ctx context.Context, customerID i
 			updated_at = NOW()
 		WHERE id = $2
 	`
-	result, err := r.db.ExecContext(ctx, query, prefsJSON, customerID)
+	cmdTag, err := r.db.Exec(ctx, query, prefsJSON, customerID)
 	if err != nil {
 		return r.handleError(err, "failed to update preferences")
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
+	if cmdTag.RowsAffected() == 0 {
 		return repository.ErrCustomerNotFound
 	}
 
@@ -630,13 +660,12 @@ func (r *CustomerRepository) UpdateInvoiceSettings(ctx context.Context, customer
 			updated_at = NOW()
 		WHERE id = $4
 	`
-	result, err := r.db.ExecContext(ctx, query, requiresInvoice, taxID, taxName, customerID)
+	cmdTag, err := r.db.Exec(ctx, query, requiresInvoice, taxID, taxName, customerID)
 	if err != nil {
 		return r.handleError(err, "failed to update invoice settings")
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
+	if cmdTag.RowsAffected() == 0 {
 		return repository.ErrCustomerNotFound
 	}
 
@@ -657,7 +686,14 @@ func (r *CustomerRepository) GetStats(ctx context.Context) (*repository.Customer
 	`
 
 	var stats repository.CustomerStats
-	err := r.db.GetContext(ctx, &stats, query)
+	err := r.db.QueryRow(ctx, query).Scan(
+		&stats.TotalCustomers,
+		&stats.ActiveCustomers,
+		&stats.VIPCustomers,
+		&stats.NewCustomersLast30Days,
+		&stats.TotalRevenue,
+		&stats.AvgLifetimeValue,
+	)
 	if err != nil {
 		return nil, r.handleError(err, "failed to get customer stats")
 	}
@@ -674,14 +710,23 @@ func (r *CustomerRepository) GetStats(ctx context.Context) (*repository.Customer
 		LIMIT 10
 	`
 
-	var topCountries []repository.CountryStat
-	err = r.db.SelectContext(ctx, &topCountries, countryQuery)
+	rows, err := r.db.Query(ctx, countryQuery)
 	if err != nil {
-		// No fallamos si esto no funciona, solo devolvemos vacío
 		stats.TopCountries = []repository.CountryStat{}
-	} else {
-		stats.TopCountries = topCountries
+		return &stats, nil
 	}
+	defer rows.Close()
+
+	var topCountries []repository.CountryStat
+	for rows.Next() {
+		var cs repository.CountryStat
+		err = rows.Scan(&cs.Country, &cs.Count, &cs.Revenue)
+		if err != nil {
+			continue
+		}
+		topCountries = append(topCountries, cs)
+	}
+	stats.TopCountries = topCountries
 
 	return &stats, nil
 }

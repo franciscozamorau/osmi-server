@@ -53,6 +53,7 @@ type CategoryRepository interface {
 	Create(ctx context.Context, category *entities.Category) error
 	Update(ctx context.Context, category *entities.Category) error
 	Delete(ctx context.Context, id int64) error
+	GetSlugsByEventID(ctx context.Context, eventID string) ([]string, error)
 
 	// --- Operaciones de Lectura (Flexibles) ---
 	// El método principal para obtener múltiples categorías.

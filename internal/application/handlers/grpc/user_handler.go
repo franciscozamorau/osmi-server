@@ -57,7 +57,7 @@ func (h *UserHandler) CreateUser(ctx context.Context, req *osmi.CreateUserReques
 		Role:     req.Role,
 	}
 	if createReq.Role == "" {
-		createReq.Role = "customer" // Valor por defecto
+		createReq.Role = "customer"
 	}
 
 	// Llamar al servicio
@@ -77,8 +77,8 @@ func (h *UserHandler) CreateUser(ctx context.Context, req *osmi.CreateUserReques
 	}, nil
 }
 
-// GetUser obtiene un usuario por su ID
-func (h *UserHandler) GetUser(ctx context.Context, req *osmi.UserLookup) (*osmi.UserResponse, error) {
+// CORREGIDO: Ahora recibe GetUserRequest en lugar de UserLookup
+func (h *UserHandler) GetUser(ctx context.Context, req *osmi.GetUserRequest) (*osmi.UserResponse, error) {
 	// Validar que se proporcione un ID
 	if req.UserId == "" {
 		return nil, status.Error(codes.InvalidArgument, "user_id is required")
@@ -107,32 +107,29 @@ func (h *UserHandler) GetUser(ctx context.Context, req *osmi.UserLookup) (*osmi.
 	}, nil
 }
 
-// ============================================================================
-// MÉTODOS NO IMPLEMENTADOS (PREPARADOS PARA EL FUTURO)
-// ============================================================================
-
 // UpdateUser actualiza la información de un usuario
-// Nota: Este método no está en el proto actual. Cuando se agregue, se implementará aquí.
 func (h *UserHandler) UpdateUser(ctx context.Context, req *osmi.UpdateUserRequest) (*osmi.UserResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "UpdateUser not implemented in proto")
+	return nil, status.Error(codes.Unimplemented, "UpdateUser not implemented")
 }
 
 // DeleteUser elimina (desactiva) un usuario
-// Nota: Este método no está en el proto actual. Cuando se agregue, se implementará aquí.
-func (h *UserHandler) DeleteUser(ctx context.Context, req *osmi.Empty) (*osmi.Empty, error) {
-	return nil, status.Error(codes.Unimplemented, "DeleteUser not implemented in proto")
+func (h *UserHandler) DeleteUser(ctx context.Context, req *osmi.DeleteUserRequest) (*osmi.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "DeleteUser not implemented")
 }
 
-// Login autentica a un usuario y crea una sesión
-// Nota: Este método no está en el proto actual. Cuando se agregue, se implementará aquí.
+// Login autentica a un usuario
 func (h *UserHandler) Login(ctx context.Context, req *osmi.LoginRequest) (*osmi.LoginResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "Login not implemented in proto")
+	return nil, status.Error(codes.Unimplemented, "Login not implemented")
 }
 
 // Logout cierra la sesión de un usuario
-// Nota: Este método no está en el proto actual. Cuando se agregue, se implementará aquí.
-func (h *UserHandler) Logout(ctx context.Context, req *osmi.Empty) (*osmi.Empty, error) {
-	return nil, status.Error(codes.Unimplemented, "Logout not implemented in proto")
+func (h *UserHandler) Logout(ctx context.Context, req *osmi.LogoutRequest) (*osmi.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "Logout not implemented")
+}
+
+// RefreshToken renueva el token de acceso
+func (h *UserHandler) RefreshToken(ctx context.Context, req *osmi.RefreshTokenRequest) (*osmi.RefreshTokenResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "RefreshToken not implemented")
 }
 
 // ============================================================================
@@ -140,9 +137,7 @@ func (h *UserHandler) Logout(ctx context.Context, req *osmi.Empty) (*osmi.Empty,
 // ============================================================================
 
 // extractUserIDFromContext extrae el userID del token JWT en el contexto
-// Útil para interceptores y autenticación
 func (h *UserHandler) extractUserIDFromContext(ctx context.Context) (int64, error) {
-	// Obtener el token del metadata
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return 0, status.Error(codes.Unauthenticated, "metadata not found")
@@ -153,13 +148,11 @@ func (h *UserHandler) extractUserIDFromContext(ctx context.Context) (int64, erro
 		return 0, status.Error(codes.Unauthenticated, "authorization token not found")
 	}
 
-	// Quitar el prefijo "Bearer " si existe
 	tokenString := authHeaders[0]
 	if len(tokenString) > 7 && tokenString[:7] == "Bearer " {
 		tokenString = tokenString[7:]
 	}
 
-	// Parsear y validar el token
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, status.Error(codes.Unauthenticated, "unexpected signing method")
@@ -171,7 +164,6 @@ func (h *UserHandler) extractUserIDFromContext(ctx context.Context) (int64, erro
 		return 0, status.Error(codes.Unauthenticated, "invalid token")
 	}
 
-	// Extraer el userID del token
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
 		return 0, status.Error(codes.Unauthenticated, "invalid token claims")
@@ -186,9 +178,7 @@ func (h *UserHandler) extractUserIDFromContext(ctx context.Context) (int64, erro
 }
 
 // extractSessionIDFromContext extrae el sessionID del contexto
-// Útil para interceptores y validación de sesiones
 func (h *UserHandler) extractSessionIDFromContext(ctx context.Context) (string, error) {
-	// Obtener el session_id del metadata
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return "", status.Error(codes.Unauthenticated, "metadata not found")

@@ -3,13 +3,11 @@ package grpc
 
 import (
 	"context"
-	"strconv"
 
 	osmi "github.com/franciscozamorau/osmi-protobuf/gen/pb"
 	"github.com/franciscozamorau/osmi-server/internal/api/dto"
 	"github.com/franciscozamorau/osmi-server/internal/api/helpers"
 	"github.com/franciscozamorau/osmi-server/internal/application/services"
-	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 	"github.com/franciscozamorau/osmi-server/internal/domain/repository"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -74,33 +72,13 @@ func (h *CustomerHandler) CreateCustomer(ctx context.Context, req *osmi.CreateCu
 	}, nil
 }
 
-// GetCustomer obtiene un cliente por diferentes criterios de búsqueda
-func (h *CustomerHandler) GetCustomer(ctx context.Context, req *osmi.CustomerLookup) (*osmi.CustomerResponse, error) {
-	var (
-		customer *entities.Customer
-		err      error
-	)
-
-	switch lookup := req.Lookup.(type) {
-	case *osmi.CustomerLookup_PublicId:
-		if lookup.PublicId == "" {
-			return nil, status.Error(codes.InvalidArgument, "public_id cannot be empty")
-		}
-		customer, err = h.customerService.GetCustomer(ctx, lookup.PublicId)
-
-	case *osmi.CustomerLookup_Id:
-		// Convertir int32 a string para el servicio (el servicio espera string)
-		customerID := strconv.FormatInt(int64(lookup.Id), 10)
-		customer, err = h.customerService.GetCustomer(ctx, customerID)
-
-	case *osmi.CustomerLookup_Email:
-		// Por ahora, no implementado
-		return nil, status.Error(codes.Unimplemented, "search by email not implemented")
-
-	default:
-		return nil, status.Error(codes.InvalidArgument, "no valid lookup provided")
+// CORREGIDO: Ahora recibe GetCustomerRequest en lugar de CustomerLookup
+func (h *CustomerHandler) GetCustomer(ctx context.Context, req *osmi.GetCustomerRequest) (*osmi.CustomerResponse, error) {
+	if req.PublicId == "" {
+		return nil, status.Error(codes.InvalidArgument, "public_id cannot be empty")
 	}
 
+	customer, err := h.customerService.GetCustomer(ctx, req.PublicId)
 	if err != nil {
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
@@ -158,15 +136,23 @@ func (h *CustomerHandler) UpdateCustomer(ctx context.Context, req *osmi.UpdateCu
 
 // ListCustomers lista clientes con filtros y paginación
 func (h *CustomerHandler) ListCustomers(ctx context.Context, req *osmi.ListCustomersRequest) (*osmi.CustomerListResponse, error) {
-	// Convertir filtros
+	// Convertir filtros - CORREGIDO: No incluir IsActive e IsVIP por defecto
 	filter := &dto.CustomerFilter{
 		Search:          req.Search,
 		Country:         req.Country,
-		IsActive:        &req.IsActive,
-		IsVIP:           &req.IsVip,
 		CustomerSegment: req.CustomerSegment,
 		DateFrom:        req.DateFrom,
 		DateTo:          req.DateTo,
+	}
+
+	// Solo agregar IsActive si se envió explícitamente (true)
+	if req.IsActive {
+		filter.IsActive = &req.IsActive
+	}
+
+	// Solo agregar IsVIP si se envió explícitamente (true)
+	if req.IsVip {
+		filter.IsVIP = &req.IsVip
 	}
 
 	// Paginación

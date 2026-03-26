@@ -17,7 +17,7 @@ type Handler struct {
 	userHandler       *UserHandler
 	eventHandler      *EventHandler
 	categoryHandler   *CategoryHandler
-	ticketTypeHandler *TicketTypeHandler // NUEVO: Handler para tipos de ticket
+	ticketTypeHandler *TicketTypeHandler
 }
 
 func NewHandler(
@@ -26,7 +26,7 @@ func NewHandler(
 	userHandler *UserHandler,
 	eventHandler *EventHandler,
 	categoryHandler *CategoryHandler,
-	ticketTypeHandler *TicketTypeHandler, // NUEVO: Parámetro para el handler de tipos de ticket
+	ticketTypeHandler *TicketTypeHandler,
 ) *Handler {
 	return &Handler{
 		customerHandler:   customerHandler,
@@ -34,11 +34,11 @@ func NewHandler(
 		userHandler:       userHandler,
 		eventHandler:      eventHandler,
 		categoryHandler:   categoryHandler,
-		ticketTypeHandler: ticketTypeHandler, // NUEVO: Asignación
+		ticketTypeHandler: ticketTypeHandler,
 	}
 }
 
-// ============ TICKET TYPES (NUEVOS) ============
+// ============ TICKET TYPES ============
 func (h *Handler) CreateTicketType(ctx context.Context, req *osmi.CreateTicketTypeRequest) (*osmi.TicketTypeResponse, error) {
 	return h.ticketTypeHandler.CreateTicketType(ctx, req)
 }
@@ -59,12 +59,13 @@ func (h *Handler) DeleteTicketType(ctx context.Context, req *osmi.DeleteTicketTy
 	return h.ticketTypeHandler.DeleteTicketType(ctx, req)
 }
 
-// ============ CATEGORIES (NUEVOS) ============
+// ============ CATEGORIES ============
 func (h *Handler) CreateCategory(ctx context.Context, req *osmi.CreateCategoryRequest) (*osmi.CategoryResponse, error) {
 	return h.categoryHandler.CreateCategory(ctx, req)
 }
 
-func (h *Handler) GetEventCategories(ctx context.Context, req *osmi.EventLookup) (*osmi.CategoryListResponse, error) {
+// CORREGIDO: Ahora usa GetEventCategoriesRequest
+func (h *Handler) GetEventCategories(ctx context.Context, req *osmi.GetEventCategoriesRequest) (*osmi.CategoryListResponse, error) {
 	return h.categoryHandler.GetEventCategories(ctx, req)
 }
 
@@ -73,7 +74,8 @@ func (h *Handler) CreateCustomer(ctx context.Context, req *osmi.CreateCustomerRe
 	return h.customerHandler.CreateCustomer(ctx, req)
 }
 
-func (h *Handler) GetCustomer(ctx context.Context, req *osmi.CustomerLookup) (*osmi.CustomerResponse, error) {
+// CORREGIDO: Ahora usa GetCustomerRequest
+func (h *Handler) GetCustomer(ctx context.Context, req *osmi.GetCustomerRequest) (*osmi.CustomerResponse, error) {
 	return h.customerHandler.GetCustomer(ctx, req)
 }
 
@@ -87,6 +89,11 @@ func (h *Handler) ListCustomers(ctx context.Context, req *osmi.ListCustomersRequ
 
 func (h *Handler) GetCustomerStats(ctx context.Context, req *osmi.Empty) (*osmi.CustomerStatsResponse, error) {
 	return h.customerHandler.GetCustomerStats(ctx, req)
+}
+
+// CORREGIDO: Ahora usa GetCustomerTicketsRequest
+func (h *Handler) GetCustomerTickets(ctx context.Context, req *osmi.GetCustomerTicketsRequest) (*osmi.TicketListResponse, error) {
+	return h.ticketHandler.GetCustomerTickets(ctx, req)
 }
 
 // ============ TICKETS ============
@@ -110,12 +117,9 @@ func (h *Handler) ListTickets(ctx context.Context, req *osmi.ListTicketsRequest)
 	return h.ticketHandler.ListTickets(ctx, req)
 }
 
-func (h *Handler) GetUserTickets(ctx context.Context, req *osmi.UserLookup) (*osmi.TicketListResponse, error) {
+// CORREGIDO: Ahora usa GetUserTicketsRequest
+func (h *Handler) GetUserTickets(ctx context.Context, req *osmi.GetUserTicketsRequest) (*osmi.TicketListResponse, error) {
 	return h.ticketHandler.GetUserTickets(ctx, req)
-}
-
-func (h *Handler) GetCustomerTickets(ctx context.Context, req *osmi.CustomerLookup) (*osmi.TicketListResponse, error) {
-	return h.ticketHandler.GetCustomerTickets(ctx, req)
 }
 
 func (h *Handler) UpdateTicketStatus(ctx context.Context, req *osmi.UpdateTicketStatusRequest) (*osmi.TicketResponse, error) {
@@ -139,7 +143,8 @@ func (h *Handler) CreateUser(ctx context.Context, req *osmi.CreateUserRequest) (
 	return h.userHandler.CreateUser(ctx, req)
 }
 
-func (h *Handler) GetUser(ctx context.Context, req *osmi.UserLookup) (*osmi.UserResponse, error) {
+// CORREGIDO: Ahora usa GetUserRequest
+func (h *Handler) GetUser(ctx context.Context, req *osmi.GetUserRequest) (*osmi.UserResponse, error) {
 	return h.userHandler.GetUser(ctx, req)
 }
 
@@ -147,17 +152,17 @@ func (h *Handler) UpdateUser(ctx context.Context, req *osmi.UpdateUserRequest) (
 	return h.userHandler.UpdateUser(ctx, req)
 }
 
-//func (h *Handler) DeleteUser(ctx context.Context, req *osmi.DeleteUserRequest) (*osmi.Empty, error) {
-//	return h.userHandler.DeleteUser(ctx, req)
-//}
+func (h *Handler) DeleteUser(ctx context.Context, req *osmi.DeleteUserRequest) (*osmi.Empty, error) {
+	return h.userHandler.DeleteUser(ctx, req)
+}
 
 func (h *Handler) Login(ctx context.Context, req *osmi.LoginRequest) (*osmi.LoginResponse, error) {
 	return h.userHandler.Login(ctx, req)
 }
 
-//func (h *Handler) Logout(ctx context.Context, req *osmi.LogoutRequest) (*osmi.Empty, error) {
-//	return h.userHandler.Logout(ctx, req)
-//}
+func (h *Handler) Logout(ctx context.Context, req *osmi.LogoutRequest) (*osmi.Empty, error) {
+	return h.userHandler.Logout(ctx, req)
+}
 
 func (h *Handler) RefreshToken(ctx context.Context, req *osmi.RefreshTokenRequest) (*osmi.RefreshTokenResponse, error) {
 	return h.userHandler.RefreshToken(ctx, req)
@@ -169,7 +174,8 @@ func (h *Handler) CreateEvent(ctx context.Context, req *osmi.CreateEventRequest)
 	return h.eventHandler.CreateEvent(ctx, req)
 }
 
-func (h *Handler) GetEvent(ctx context.Context, req *osmi.EventLookup) (*osmi.EventResponse, error) {
+// CORREGIDO: Ahora usa GetEventRequest
+func (h *Handler) GetEvent(ctx context.Context, req *osmi.GetEventRequest) (*osmi.EventResponse, error) {
 	return h.eventHandler.GetEvent(ctx, req)
 }
 

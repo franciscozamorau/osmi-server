@@ -53,6 +53,7 @@ osmi-server/
 │   │   │   │   ├── api_call_response.go     # Respuestas de llamadas API
 │   │   │   │   ├── audit_response.go        # Respuestas de auditoría
 │   │   │   │   ├── category_response.go     # Respuestas de categorías
+│   │   │   │   ├── common_types.go          # Respuestas de common
 │   │   │   │   ├── country_config_response.go # Respuestas de configuración por país
 │   │   │   │   ├── customer_response.go     # Respuestas de clientes
 │   │   │   │   ├── event_response.go        # Respuestas de eventos
@@ -202,11 +203,14 @@ osmi-server/
 |   |           |    │   ├── basic_validations.go # Validaciones básicas
 |   |           |    │   ├── business_validations.go # Validaciones negocio
 |   |           |    │   └── domain_validations.go # Validaciones dominio
-│   │           ├── category_repository.go # Implementación PostgreSQL de repositorio de categorías
-│   │           ├── customer_repository.go # Implementación PostgreSQL de repositorio de clientes
-│   │           ├── event_repository.go    # Implementación PostgreSQL de repositorio de eventos
-│   │           ├── ticket_repository.go   # Implementación PostgreSQL de repositorio de tickets
-│   │           └── user_repository.go     # Implementación PostgreSQL de repositorio de usuarios
+│   │           ├── category_repository.go        # Implementación PostgreSQL de repositorio de categorías
+│   │           ├── customer_repository.go        # Implementación PostgreSQL de repositorio de clientes
+│   │           ├── event_repository.go           # Implementación PostgreSQL de repositorio de eventos
+│   │           ├── organizer_repository.go       # 
+│   │           ├── ticket_repository.go          # Implementación PostgreSQL de repositorio de tickets
+│   │           ├── ticket_type_repository.go     # 
+│   │           └── user_repository.go            # Implementación PostgreSQL de repositorio de usuarios
+│   │           ├── venue_repository.go           # 
 │   └── repository/                         # 
 │   │   ├── testdb/                       #
 │       │   ├── testdb.go                  # 

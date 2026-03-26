@@ -12,7 +12,7 @@ require (
 	github.com/jackc/pgx/v5 v5.5.5
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/joho/godotenv v1.5.1
-	github.com/lib/pq v1.11.2
+	github.com/lib/pq v1.12.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.46.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260209200024-4cfbd4190f57

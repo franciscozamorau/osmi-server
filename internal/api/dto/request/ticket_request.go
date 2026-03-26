@@ -4,11 +4,11 @@ import "github.com/go-playground/validator/v10"
 
 // CreateTicketRequest para crear un ticket
 type CreateTicketRequest struct {
-	EventID    string `json:"event_id" validate:"required"`
-	CustomerID string `json:"customer_id" validate:"required"`
-	CategoryID string `json:"category_id" validate:"required"`
-	Quantity   int32  `json:"quantity" validate:"required,min=1,max=10"`
-	UserID     string `json:"user_id,omitempty"`
+	EventID      string `json:"event_id" validate:"required"`
+	CustomerID   string `json:"customer_id" validate:"required"`
+	TicketTypeID string `json:"ticketTypeId" validate:"required"`
+	Quantity     int32  `json:"quantity" validate:"required,min=1,max=10"`
+	UserID       string `json:"user_id,omitempty"`
 }
 
 // Validate valida la estructura

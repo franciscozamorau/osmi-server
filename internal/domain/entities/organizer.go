@@ -1,3 +1,4 @@
+// internal/domain/entities/organizer.go
 package entities
 
 import (

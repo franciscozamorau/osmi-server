@@ -33,12 +33,10 @@ func NewEventHandler(eventService *services.EventService) *EventHandler {
 
 // CreateEvent maneja la creación de un nuevo evento
 func (h *EventHandler) CreateEvent(ctx context.Context, req *osmi.CreateEventRequest) (*osmi.EventResponse, error) {
-	// LOG 1: Entrada a la función
 	log.Println("🎯 EVENT_HANDLER: CreateEvent ENTRÓ a la función")
 	log.Printf("🎯 EVENT_HANDLER: req type: %T", req)
 	log.Printf("🎯 EVENT_HANDLER: req value: %+v", req)
 
-	// LOG 2: Validar campos requeridos UNO POR UNO
 	log.Printf("🎯 Validando Name: %q", req.Name)
 	if req.Name == "" {
 		log.Println("🎯 ERROR: Name vacío")
@@ -63,7 +61,6 @@ func (h *EventHandler) CreateEvent(ctx context.Context, req *osmi.CreateEventReq
 		return nil, status.Error(codes.InvalidArgument, "end_date is required")
 	}
 
-	// LOG 3: Parsear fechas
 	log.Println("🎯 Parseando fechas...")
 	startsAt, err := time.Parse(time.RFC3339, req.StartDate)
 	if err != nil {
@@ -78,7 +75,6 @@ func (h *EventHandler) CreateEvent(ctx context.Context, req *osmi.CreateEventReq
 	}
 	log.Printf("🎯 Fechas parseadas: startsAt=%v, endsAt=%v", startsAt, endsAt)
 
-	// LOG 4: Crear DTO
 	log.Println("🎯 Creando DTO...")
 	createReq := &dto.CreateEventRequest{
 		Name:                req.Name,
@@ -115,7 +111,6 @@ func (h *EventHandler) CreateEvent(ctx context.Context, req *osmi.CreateEventReq
 	}
 	log.Printf("🎯 DTO creado: %+v", createReq)
 
-	// LOG 5: Llamar al servicio
 	log.Println("🎯 Llamando a eventService.CreateEvent...")
 	event, err := h.eventService.CreateEvent(ctx, createReq)
 	if err != nil {
@@ -124,7 +119,6 @@ func (h *EventHandler) CreateEvent(ctx context.Context, req *osmi.CreateEventReq
 	}
 	log.Printf("🎯 eventService.CreateEvent OK, event: %+v", event)
 
-	// LOG 6: Convertir a proto
 	log.Println("🎯 Convirtiendo a proto...")
 	resp := h.eventToProto(event)
 	log.Printf("🎯 Respuesta preparada: %+v", resp)
@@ -132,8 +126,8 @@ func (h *EventHandler) CreateEvent(ctx context.Context, req *osmi.CreateEventReq
 	return resp, nil
 }
 
-// GetEvent obtiene un evento por su ID
-func (h *EventHandler) GetEvent(ctx context.Context, req *osmi.EventLookup) (*osmi.EventResponse, error) {
+// CORREGIDO: Ahora recibe GetEventRequest en lugar de EventLookup
+func (h *EventHandler) GetEvent(ctx context.Context, req *osmi.GetEventRequest) (*osmi.EventResponse, error) {
 	if req.PublicId == "" {
 		return nil, status.Error(codes.InvalidArgument, "event public_id is required")
 	}
@@ -161,16 +155,13 @@ func (h *EventHandler) ListEvents(ctx context.Context, req *osmi.ListEventsReque
 		Search:     req.Search,
 	}
 
-	// Usar GetOrganizerId() para obtener el valor
 	organizerId := req.GetOrganizerId()
 	if organizerId != "" {
 		// Nota: Necesitarías convertir organizer_id a int64
-		// Por ahora se omite
 	}
 
 	if req.CategoryId != "" {
 		// Nota: Necesitarías convertir category_id a int64
-		// Por ahora se omite
 	}
 
 	// Paginación
@@ -268,7 +259,6 @@ func (h *EventHandler) eventToProto(event *entities.Event) *osmi.EventResponse {
 		return nil
 	}
 
-	// Construir respuesta base
 	resp := &osmi.EventResponse{
 		PublicId:         event.PublicID,
 		Name:             event.Name,
@@ -278,7 +268,7 @@ func (h *EventHandler) eventToProto(event *entities.Event) *osmi.EventResponse {
 		EndDate:          event.EndsAt.Format(time.RFC3339),
 		Location:         helpers.SafeStringPtr(event.VenueName),
 		VenueDetails:     helpers.SafeStringPtr(event.AddressFull),
-		Category:         "", // Requiere consulta adicional
+		Category:         "",
 		Tags:             []string{},
 		IsActive:         event.Status != "cancelled" && event.Status != "archived",
 		IsPublished:      event.Status == "published" || event.Status == "live",
@@ -288,17 +278,14 @@ func (h *EventHandler) eventToProto(event *entities.Event) *osmi.EventResponse {
 		UpdatedAt:        timestamppb.New(event.UpdatedAt),
 	}
 
-	// Agregar tags si existen
 	if event.Tags != nil {
 		resp.Tags = *event.Tags
 	}
 
-	// Agregar max_attendees si existe
 	if event.MaxAttendees != nil {
 		resp.MaxAttendees = int32(*event.MaxAttendees)
 	}
 
-	// Nota: total_tickets y tickets_sold requieren consultas adicionales
 	resp.TotalTickets = 0
 	resp.TicketsSold = 0
 

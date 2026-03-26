@@ -22,7 +22,7 @@ type TicketType struct {
 	ServiceFeeType  string  `json:"service_fee_type" db:"service_fee_type"`
 	ServiceFeeValue float64 `json:"service_fee_value" db:"service_fee_value"`
 
-	// CORREGIDO: Usamos int en lugar de int32 para INTEGER en PostgreSQL
+	// Usamos int para INTEGER en PostgreSQL
 	TotalQuantity    int `json:"total_quantity" db:"total_quantity"`
 	ReservedQuantity int `json:"reserved_quantity" db:"reserved_quantity"`
 	SoldQuantity     int `json:"sold_quantity" db:"sold_quantity"`
@@ -37,14 +37,15 @@ type TicketType struct {
 	IsHidden         bool   `json:"is_hidden" db:"is_hidden"`
 	SalesChannel     string `json:"sales_channel" db:"sales_channel"`
 
-	// CORREGIDO: benefits es JSONB
-	Benefits   *[]string `json:"benefits,omitempty" db:"benefits,type:jsonb"`
-	AccessType string    `json:"access_type" db:"access_type"`
+	// CORREGIDO: Benefits como []string para JSONB
+	Benefits []string `json:"benefits" db:"benefits,type:jsonb"`
 
-	// CORREGIDO: validation_rules es JSONB con estructura específica
+	AccessType string `json:"access_type" db:"access_type"`
+
+	// validation_rules como JSONB
 	ValidationRules *ValidationRules `json:"validation_rules,omitempty" db:"validation_rules,type:jsonb"`
 
-	// CAMPOS GENERADOS (STORED) - No se actualizan directamente
+	// Campos generados
 	AvailableQuantity int  `json:"available_quantity" db:"available_quantity"`
 	IsSoldOut         bool `json:"is_sold_out" db:"is_sold_out"`
 
@@ -184,51 +185,35 @@ func (tt *TicketType) ValidateOrderQuantity(quantity int) error {
 	return nil
 }
 
-// AddBenefit añade un beneficio al ticket
+// CORREGIDO: AddBenefit - ahora trabaja con []string
 func (tt *TicketType) AddBenefit(benefit string) {
-	if tt.Benefits == nil {
-		tt.Benefits = &[]string{}
-	}
-
 	// Verificar si ya existe
-	for _, b := range *tt.Benefits {
+	for _, b := range tt.Benefits {
 		if b == benefit {
 			return
 		}
 	}
 
-	*tt.Benefits = append(*tt.Benefits, benefit)
+	tt.Benefits = append(tt.Benefits, benefit)
 	tt.UpdatedAt = time.Now()
 }
 
-// RemoveBenefit elimina un beneficio
+// CORREGIDO: RemoveBenefit - ahora trabaja con []string
 func (tt *TicketType) RemoveBenefit(benefit string) {
-	if tt.Benefits == nil {
-		return
-	}
-
 	newBenefits := []string{}
-	for _, b := range *tt.Benefits {
+	for _, b := range tt.Benefits {
 		if b != benefit {
 			newBenefits = append(newBenefits, b)
 		}
 	}
 
-	if len(newBenefits) == 0 {
-		tt.Benefits = nil
-	} else {
-		*tt.Benefits = newBenefits
-	}
+	tt.Benefits = newBenefits
 	tt.UpdatedAt = time.Now()
 }
 
-// HasBenefit verifica si tiene un beneficio específico
+// CORREGIDO: HasBenefit - ahora trabaja con []string
 func (tt *TicketType) HasBenefit(benefit string) bool {
-	if tt.Benefits == nil {
-		return false
-	}
-
-	for _, b := range *tt.Benefits {
+	for _, b := range tt.Benefits {
 		if b == benefit {
 			return true
 		}

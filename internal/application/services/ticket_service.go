@@ -1,4 +1,3 @@
-// internal/application/services/ticket_service.go (VERSIÓN CORREGIDA)
 package services
 
 import (
@@ -8,6 +7,7 @@ import (
 	"time"
 
 	"github.com/franciscozamorau/osmi-server/internal/api/dto"
+	requestdto "github.com/franciscozamorau/osmi-server/internal/api/dto/request"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 	"github.com/franciscozamorau/osmi-server/internal/domain/enums"
 	"github.com/franciscozamorau/osmi-server/internal/domain/repository"
@@ -45,9 +45,9 @@ func NewTicketService(
 // ============================================================================
 
 // CreateTicket crea un nuevo ticket vendido
-func (s *TicketService) CreateTicket(ctx context.Context, req *dto.CreateTicketRequest) (*entities.Ticket, error) {
+func (s *TicketService) CreateTicket(ctx context.Context, req *requestdto.CreateTicketRequest) (*entities.Ticket, error) {
 	// Validar tipo de ticket
-	ticketType, err := s.ticketTypeRepo.FindByPublicID(ctx, req.CategoryID)
+	ticketType, err := s.ticketTypeRepo.FindByPublicID(ctx, req.TicketTypeID)
 	if err != nil {
 		return nil, fmt.Errorf("ticket type not found: %w", err)
 	}
@@ -415,7 +415,6 @@ func (s *TicketService) UpdateTicket(ctx context.Context, ticketID string, req *
 	}
 
 	if req.Status != nil && *req.Status != ticket.Status {
-		// CORREGIDO: Usar CanTransitionTicket en lugar de CanTransition
 		if !enums.CanTransitionTicket(enums.TicketStatus(ticket.Status), enums.TicketStatus(*req.Status)) {
 			return nil, fmt.Errorf("invalid status transition from %s to %s", ticket.Status, *req.Status)
 		}

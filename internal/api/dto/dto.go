@@ -37,14 +37,6 @@ type CustomerFilter struct {
 	DateTo          string `json:"date_to,omitempty"`
 }
 
-type CreateTicketRequest struct {
-	EventID    string `json:"event_id" validate:"required"`
-	CustomerID string `json:"customer_id" validate:"required"`
-	CategoryID string `json:"category_id" validate:"required"`
-	Quantity   int32  `json:"quantity" validate:"required,min=1,max=10"`
-	UserID     string `json:"user_id,omitempty"`
-}
-
 type UpdateTicketStatusRequest struct {
 	TicketID string `json:"ticket_id" validate:"required"`
 	Status   string `json:"status" validate:"required,oneof=available reserved sold checked_in cancelled transferred refunded expired"`

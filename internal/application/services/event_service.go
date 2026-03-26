@@ -89,14 +89,14 @@ func (s *EventService) CreateEvent(ctx context.Context, req *dto.CreateEventRequ
 	// Crear evento con conversiones de tipos correctas
 	event := &entities.Event{
 		PublicID:            uuid.New().String(),
-		OrganizerID:         organizer.ID,
-		PrimaryCategoryID:   primaryCategoryID,
-		VenueID:             venueID,
+		OrganizerID:         &organizer.ID,
+		PrimaryCategoryID:   primaryCategoryID, //    PrimaryCategoryID: nil,  // ← puntero nil / por si falla
+		VenueID:             venueID,           //	VenueID: nil, // ← puntero nil / por si falla
 		Name:                req.Name,
 		Slug:                req.Slug,
 		ShortDescription:    &req.ShortDescription,
 		Description:         &req.Description,
-		EventType:           req.EventType,
+		EventType:           &req.EventType,
 		CoverImageURL:       &req.CoverImageURL,
 		BannerImageURL:      &req.BannerImageURL,
 		GalleryImages:       nil,

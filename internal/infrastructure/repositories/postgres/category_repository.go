@@ -1,14 +1,15 @@
+// internal/infrastructure/repositories/postgres/category_repository.go
 package postgres
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/jmoiron/sqlx"
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 	"github.com/franciscozamorau/osmi-server/internal/domain/repository"
@@ -16,47 +17,42 @@ import (
 
 // CategoryRepository implementa la interfaz repository.CategoryRepository usando PostgreSQL
 type CategoryRepository struct {
-	db *sqlx.DB
-	// Opcional: logger si lo necesitas
-	// logger logger.Logger
+	db *pgxpool.Pool
 }
 
 // NewCategoryRepository crea una nueva instancia del repositorio
-func NewCategoryRepository(db *sqlx.DB) *CategoryRepository {
+func NewCategoryRepository(db *pgxpool.Pool) *CategoryRepository {
 	return &CategoryRepository{
 		db: db,
 	}
 }
 
-// Helper privado para mapear errores de PostgreSQL a nuestros errores de dominio
+// handleError mapea errores de PostgreSQL a nuestros errores de dominio
 func (r *CategoryRepository) handleError(err error, context string) error {
 	if err == nil {
 		return nil
 	}
 
-	// Errores específicos de PostgreSQL
-	if pqErr, ok := err.(*pq.Error); ok {
-		switch pqErr.Code {
-		case "23505": // Unique violation
-			if strings.Contains(pqErr.Constraint, "categories_slug_key") {
-				return repository.ErrCategoryDuplicateSlug
-			}
-			// Podríamos tener más constraints aquí
-		}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return repository.ErrCategoryNotFound
 	}
 
-	// Wrap el error para dar contexto, pero mantener el error original si es uno nuestro
-	if errors.Is(err, sql.ErrNoRows) {
-		return repository.ErrCategoryNotFound
+	// Verificar si es un error de PostgreSQL con código
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "23505": // Unique violation
+			if strings.Contains(pgErr.ConstraintName, "categories_slug_key") {
+				return repository.ErrCategoryDuplicateSlug
+			}
+		}
 	}
 
 	return fmt.Errorf("%s: %w", context, err)
 }
 
-// Find busca categorías según los criterios del filtro.
-// Retorna las categorías y el total de registros (ignorando paginación).
+// Find busca categorías según los criterios del filtro
 func (r *CategoryRepository) Find(ctx context.Context, filter *repository.CategoryFilter) ([]*entities.Category, int64, error) {
-	// 1. Construir la query base
 	baseQuery := `
         SELECT 
             id, public_uuid, name, slug, description, icon, color_hex,
@@ -67,110 +63,92 @@ func (r *CategoryRepository) Find(ctx context.Context, filter *repository.Catego
         WHERE 1=1
     `
 
-	// Query para contar el total (sin paginación)
 	countQuery := `SELECT COUNT(*) FROM ticketing.categories WHERE 1=1`
 
-	// 2. Acumuladores para condiciones y argumentos
 	var conditions []string
-	var args []interface{}
+	args := pgx.NamedArgs{}
 	argPos := 1
 
-	// 3. Aplicar filtros si existen
 	if filter != nil {
-		// Filtro por IDs específicos
 		if len(filter.IDs) > 0 {
-			conditions = append(conditions, fmt.Sprintf("id = ANY($%d)", argPos))
-			args = append(args, pq.Array(filter.IDs))
+			conditions = append(conditions, fmt.Sprintf("id = ANY(@id_%d)", argPos))
+			args[fmt.Sprintf("id_%d", argPos)] = filter.IDs
 			argPos++
 		}
 
-		// Filtro por PublicIDs
 		if len(filter.PublicIDs) > 0 {
-			conditions = append(conditions, fmt.Sprintf("public_uuid = ANY($%d)", argPos))
-			args = append(args, pq.Array(filter.PublicIDs))
+			conditions = append(conditions, fmt.Sprintf("public_uuid = ANY(@public_%d)", argPos))
+			args[fmt.Sprintf("public_%d", argPos)] = filter.PublicIDs
 			argPos++
 		}
 
-		// Filtro por ParentID
-		// Si ParentID es nil: no filtramos por padre (traemos todos)
-		// Si ParentID apunta a 0: buscamos categorías raíz (parent_id IS NULL)
-		// Si ParentID apunta a un valor > 0: buscamos hijos de ese padre
 		if filter.ParentID != nil {
 			if *filter.ParentID == 0 {
 				conditions = append(conditions, "parent_id IS NULL")
 			} else {
-				conditions = append(conditions, fmt.Sprintf("parent_id = $%d", argPos))
-				args = append(args, *filter.ParentID)
+				conditions = append(conditions, fmt.Sprintf("parent_id = @parent_%d", argPos))
+				args[fmt.Sprintf("parent_%d", argPos)] = *filter.ParentID
 				argPos++
 			}
 		}
 
-		// Filtro por IsActive
 		if filter.IsActive != nil {
-			conditions = append(conditions, fmt.Sprintf("is_active = $%d", argPos))
-			args = append(args, *filter.IsActive)
+			conditions = append(conditions, fmt.Sprintf("is_active = @active_%d", argPos))
+			args[fmt.Sprintf("active_%d", argPos)] = *filter.IsActive
 			argPos++
 		}
 
-		// Filtro por IsFeatured
 		if filter.IsFeatured != nil {
-			conditions = append(conditions, fmt.Sprintf("is_featured = $%d", argPos))
-			args = append(args, *filter.IsFeatured)
+			conditions = append(conditions, fmt.Sprintf("is_featured = @featured_%d", argPos))
+			args[fmt.Sprintf("featured_%d", argPos)] = *filter.IsFeatured
 			argPos++
 		}
 
-		// Filtro por Slug exacto
 		if filter.Slug != nil {
-			conditions = append(conditions, fmt.Sprintf("slug = $%d", argPos))
-			args = append(args, *filter.Slug)
+			conditions = append(conditions, fmt.Sprintf("slug = @slug_%d", argPos))
+			args[fmt.Sprintf("slug_%d", argPos)] = *filter.Slug
 			argPos++
 		}
 
-		// Filtro de búsqueda por texto (en múltiples campos)
 		if filter.SearchTerm != nil && *filter.SearchTerm != "" {
 			searchTerm := "%" + *filter.SearchTerm + "%"
 			conditions = append(conditions, fmt.Sprintf(
-				"(name ILIKE $%d OR slug ILIKE $%d OR description ILIKE $%d)",
+				"(name ILIKE @search_%d OR slug ILIKE @search_%d OR description ILIKE @search_%d)",
 				argPos, argPos, argPos,
 			))
-			args = append(args, searchTerm)
+			args[fmt.Sprintf("search_%d", argPos)] = searchTerm
 			argPos++
 		}
 
-		// Filtros por nivel
 		if filter.MinLevel != nil {
-			conditions = append(conditions, fmt.Sprintf("level >= $%d", argPos))
-			args = append(args, *filter.MinLevel)
+			conditions = append(conditions, fmt.Sprintf("level >= @min_level_%d", argPos))
+			args[fmt.Sprintf("min_level_%d", argPos)] = *filter.MinLevel
 			argPos++
 		}
 		if filter.MaxLevel != nil {
-			conditions = append(conditions, fmt.Sprintf("level <= $%d", argPos))
-			args = append(args, *filter.MaxLevel)
+			conditions = append(conditions, fmt.Sprintf("level <= @max_level_%d", argPos))
+			args[fmt.Sprintf("max_level_%d", argPos)] = *filter.MaxLevel
 			argPos++
 		}
 	}
 
-	// 4. Unir todas las condiciones
 	if len(conditions) > 0 {
 		whereClause := " AND " + strings.Join(conditions, " AND ")
 		baseQuery += whereClause
 		countQuery += whereClause
 	}
 
-	// 5. Ejecutar count query para obtener el total
+	// Obtener total
 	var total int64
-	err := r.db.GetContext(ctx, &total, countQuery, args...)
+	err := r.db.QueryRow(ctx, countQuery, args).Scan(&total)
 	if err != nil {
 		return nil, 0, r.handleError(err, "failed to count categories")
 	}
 
-	// 6. Añadir ordenamiento y paginación a la query base
 	if filter != nil {
-		// Ordenamiento
 		sortBy := "sort_order"
 		sortOrder := "ASC"
 		if filter.SortBy != "" {
-			// Validar que sortBy sea una columna permitida para evitar inyección SQL
 			allowedSortColumns := map[string]bool{
 				"name": true, "created_at": true, "total_events": true,
 				"sort_order": true, "level": true,
@@ -186,24 +164,45 @@ func (r *CategoryRepository) Find(ctx context.Context, filter *repository.Catego
 		}
 		baseQuery += fmt.Sprintf(" ORDER BY %s %s", sortBy, sortOrder)
 
-		// Paginación
 		if filter.Limit > 0 {
-			baseQuery += fmt.Sprintf(" LIMIT $%d", argPos)
-			args = append(args, filter.Limit)
-			argPos++
+			baseQuery += " LIMIT @limit"
+			args["limit"] = filter.Limit
 		}
 		if filter.Offset > 0 {
-			baseQuery += fmt.Sprintf(" OFFSET $%d", argPos)
-			args = append(args, filter.Offset)
-			argPos++
+			baseQuery += " OFFSET @offset"
+			args["offset"] = filter.Offset
 		}
 	}
 
-	// 7. Ejecutar query principal
-	var categories []*entities.Category
-	err = r.db.SelectContext(ctx, &categories, baseQuery, args...)
+	rows, err := r.db.Query(ctx, baseQuery, args)
 	if err != nil {
 		return nil, 0, r.handleError(err, "failed to find categories")
+	}
+	defer rows.Close()
+
+	var categories []*entities.Category
+	for rows.Next() {
+		var cat entities.Category
+		var description, icon, metaTitle, metaDescription *string
+		var parentID *int64
+
+		err = rows.Scan(
+			&cat.ID, &cat.PublicID, &cat.Name, &cat.Slug, &description, &icon, &cat.ColorHex,
+			&parentID, &cat.Level, &cat.Path, &cat.TotalEvents, &cat.TotalTicketsSold, &cat.TotalRevenue,
+			&cat.IsActive, &cat.IsFeatured, &cat.SortOrder, &metaTitle, &metaDescription,
+			&cat.CreatedAt, &cat.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, r.handleError(err, "failed to scan category row")
+		}
+
+		cat.Description = description
+		cat.Icon = icon
+		cat.MetaTitle = metaTitle
+		cat.MetaDescription = metaDescription
+		cat.ParentID = parentID
+
+		categories = append(categories, &cat)
 	}
 
 	return categories, total, nil
@@ -270,7 +269,7 @@ func (r *CategoryRepository) GetBySlug(ctx context.Context, slug string) (*entit
 func (r *CategoryRepository) Exists(ctx context.Context, id int64) (bool, error) {
 	var exists bool
 	query := `SELECT EXISTS(SELECT 1 FROM ticketing.categories WHERE id = $1)`
-	err := r.db.GetContext(ctx, &exists, query, id)
+	err := r.db.QueryRow(ctx, query, id).Scan(&exists)
 	if err != nil {
 		return false, r.handleError(err, "failed to check category existence")
 	}
@@ -281,14 +280,14 @@ func (r *CategoryRepository) Exists(ctx context.Context, id int64) (bool, error)
 func (r *CategoryRepository) ExistsBySlug(ctx context.Context, slug string) (bool, error) {
 	var exists bool
 	query := `SELECT EXISTS(SELECT 1 FROM ticketing.categories WHERE slug = $1)`
-	err := r.db.GetContext(ctx, &exists, query, slug)
+	err := r.db.QueryRow(ctx, query, slug).Scan(&exists)
 	if err != nil {
 		return false, r.handleError(err, "failed to check slug existence")
 	}
 	return exists, nil
 }
 
-// Create inserta una nueva categoría en la base de datos
+// Create inserta una nueva categoría
 func (r *CategoryRepository) Create(ctx context.Context, category *entities.Category) error {
 	query := `
         INSERT INTO ticketing.categories (
@@ -305,8 +304,7 @@ func (r *CategoryRepository) Create(ctx context.Context, category *entities.Cate
         RETURNING id, public_uuid, created_at, updated_at
     `
 
-	err := r.db.QueryRowContext(
-		ctx, query,
+	err := r.db.QueryRow(ctx, query,
 		category.Name, category.Slug, category.Description, category.Icon, category.ColorHex,
 		category.ParentID, category.Level, category.Path,
 		category.TotalEvents, category.TotalTicketsSold, category.TotalRevenue,
@@ -323,15 +321,6 @@ func (r *CategoryRepository) Create(ctx context.Context, category *entities.Cate
 
 // Update actualiza una categoría existente
 func (r *CategoryRepository) Update(ctx context.Context, category *entities.Category) error {
-	// Primero verificamos que la categoría existe
-	exists, err := r.Exists(ctx, category.ID)
-	if err != nil {
-		return err
-	}
-	if !exists {
-		return repository.ErrCategoryNotFound
-	}
-
 	query := `
         UPDATE ticketing.categories SET
             name = $1,
@@ -352,8 +341,7 @@ func (r *CategoryRepository) Update(ctx context.Context, category *entities.Cate
         RETURNING updated_at
     `
 
-	err = r.db.QueryRowContext(
-		ctx, query,
+	err := r.db.QueryRow(ctx, query,
 		category.Name, category.Slug, category.Description, category.Icon, category.ColorHex,
 		category.ParentID, category.Level, category.Path,
 		category.IsActive, category.IsFeatured, category.SortOrder,
@@ -372,8 +360,7 @@ func (r *CategoryRepository) Update(ctx context.Context, category *entities.Cate
 func (r *CategoryRepository) Delete(ctx context.Context, id int64) error {
 	// Verificar si tiene hijos
 	var childCount int
-	err := r.db.GetContext(ctx, &childCount,
-		`SELECT COUNT(*) FROM ticketing.categories WHERE parent_id = $1`, id)
+	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM ticketing.categories WHERE parent_id = $1`, id).Scan(&childCount)
 	if err != nil {
 		return r.handleError(err, "failed to check child categories")
 	}
@@ -381,13 +368,12 @@ func (r *CategoryRepository) Delete(ctx context.Context, id int64) error {
 		return repository.ErrCategoryHasChildren
 	}
 
-	result, err := r.db.ExecContext(ctx, `DELETE FROM ticketing.categories WHERE id = $1`, id)
+	cmdTag, err := r.db.Exec(ctx, `DELETE FROM ticketing.categories WHERE id = $1`, id)
 	if err != nil {
 		return r.handleError(err, "failed to delete category")
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
+	if cmdTag.RowsAffected() == 0 {
 		return repository.ErrCategoryNotFound
 	}
 
@@ -403,17 +389,17 @@ func (r *CategoryRepository) AddEventToCategory(ctx context.Context, eventID, ca
 			is_primary = EXCLUDED.is_primary
 	`
 
-	_, err := r.db.ExecContext(ctx, query, eventID, categoryID, isPrimary)
+	cmdTag, err := r.db.Exec(ctx, query, eventID, categoryID, isPrimary)
 	if err != nil {
 		return r.handleError(err, "failed to add event to category")
 	}
 
+	if cmdTag.RowsAffected() == 0 {
+		return fmt.Errorf("no rows affected")
+	}
+
 	return nil
 }
-
-// ============================================================================
-// MÉTODOS FALTANTES PARA COMPLETAR LA INTERFAZ
-// ============================================================================
 
 // IncrementEventCount incrementa el contador de eventos de una categoría
 func (r *CategoryRepository) IncrementEventCount(ctx context.Context, categoryID int64) error {
@@ -422,13 +408,12 @@ func (r *CategoryRepository) IncrementEventCount(ctx context.Context, categoryID
 		SET total_events = total_events + 1, updated_at = NOW()
 		WHERE id = $1
 	`
-	result, err := r.db.ExecContext(ctx, query, categoryID)
+	cmdTag, err := r.db.Exec(ctx, query, categoryID)
 	if err != nil {
 		return r.handleError(err, "failed to increment event count")
 	}
 
-	rows, _ := result.RowsAffected()
-	if rows == 0 {
+	if cmdTag.RowsAffected() == 0 {
 		return repository.ErrCategoryNotFound
 	}
 	return nil
@@ -441,13 +426,12 @@ func (r *CategoryRepository) DecrementEventCount(ctx context.Context, categoryID
 		SET total_events = GREATEST(0, total_events - 1), updated_at = NOW()
 		WHERE id = $1
 	`
-	result, err := r.db.ExecContext(ctx, query, categoryID)
+	cmdTag, err := r.db.Exec(ctx, query, categoryID)
 	if err != nil {
 		return r.handleError(err, "failed to decrement event count")
 	}
 
-	rows, _ := result.RowsAffected()
-	if rows == 0 {
+	if cmdTag.RowsAffected() == 0 {
 		return repository.ErrCategoryNotFound
 	}
 	return nil
@@ -462,13 +446,12 @@ func (r *CategoryRepository) UpdateEventStats(ctx context.Context, categoryID in
 			updated_at = NOW()
 		WHERE id = $3
 	`
-	result, err := r.db.ExecContext(ctx, query, ticketSold, revenue, categoryID)
+	cmdTag, err := r.db.Exec(ctx, query, ticketSold, revenue, categoryID)
 	if err != nil {
 		return r.handleError(err, "failed to update event stats")
 	}
 
-	rows, _ := result.RowsAffected()
-	if rows == 0 {
+	if cmdTag.RowsAffected() == 0 {
 		return repository.ErrCategoryNotFound
 	}
 	return nil
@@ -485,24 +468,50 @@ func (r *CategoryRepository) GetEventCategories(ctx context.Context, eventID int
 			CASE WHEN ec.is_primary THEN 0 ELSE 1 END,
 			c.sort_order, c.name
 	`
-	var categories []*entities.Category
-	err := r.db.SelectContext(ctx, &categories, query, eventID)
+
+	rows, err := r.db.Query(ctx, query, eventID)
 	if err != nil {
 		return nil, r.handleError(err, "failed to get event categories")
 	}
+	defer rows.Close()
+
+	var categories []*entities.Category
+	for rows.Next() {
+		var cat entities.Category
+		var description, icon, metaTitle, metaDescription *string
+		var parentID *int64
+
+		err = rows.Scan(
+			&cat.ID, &cat.PublicID, &cat.Name, &cat.Slug, &description, &icon, &cat.ColorHex,
+			&parentID, &cat.Level, &cat.Path, &cat.TotalEvents, &cat.TotalTicketsSold, &cat.TotalRevenue,
+			&cat.IsActive, &cat.IsFeatured, &cat.SortOrder, &metaTitle, &metaDescription,
+			&cat.CreatedAt, &cat.UpdatedAt,
+		)
+		if err != nil {
+			return nil, r.handleError(err, "failed to scan category row")
+		}
+
+		cat.Description = description
+		cat.Icon = icon
+		cat.MetaTitle = metaTitle
+		cat.MetaDescription = metaDescription
+		cat.ParentID = parentID
+
+		categories = append(categories, &cat)
+	}
+
 	return categories, nil
 }
 
 // RemoveEventFromCategory elimina la asociación entre un evento y una categoría
 func (r *CategoryRepository) RemoveEventFromCategory(ctx context.Context, eventID, categoryID int64) error {
 	query := `DELETE FROM ticketing.event_categories WHERE event_id = $1 AND category_id = $2`
-	result, err := r.db.ExecContext(ctx, query, eventID, categoryID)
+	cmdTag, err := r.db.Exec(ctx, query, eventID, categoryID)
 	if err != nil {
 		return r.handleError(err, "failed to remove event from category")
 	}
 
-	rows, _ := result.RowsAffected()
-	if rows == 0 {
+	if cmdTag.RowsAffected() == 0 {
 		return fmt.Errorf("association not found")
 	}
 	return nil
@@ -517,25 +526,41 @@ func (r *CategoryRepository) GetPrimaryCategoryForEvent(ctx context.Context, eve
 		WHERE ec.event_id = $1 AND ec.is_primary = true
 		LIMIT 1
 	`
-	var category entities.Category
-	err := r.db.GetContext(ctx, &category, query, eventID)
+
+	var cat entities.Category
+	var description, icon, metaTitle, metaDescription *string
+	var parentID *int64
+
+	err := r.db.QueryRow(ctx, query, eventID).Scan(
+		&cat.ID, &cat.PublicID, &cat.Name, &cat.Slug, &description, &icon, &cat.ColorHex,
+		&parentID, &cat.Level, &cat.Path, &cat.TotalEvents, &cat.TotalTicketsSold, &cat.TotalRevenue,
+		&cat.IsActive, &cat.IsFeatured, &cat.SortOrder, &metaTitle, &metaDescription,
+		&cat.CreatedAt, &cat.UpdatedAt,
+	)
+
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil // No hay categoría principal
 		}
 		return nil, r.handleError(err, "failed to get primary category")
 	}
-	return &category, nil
+
+	cat.Description = description
+	cat.Icon = icon
+	cat.MetaTitle = metaTitle
+	cat.MetaDescription = metaDescription
+	cat.ParentID = parentID
+
+	return &cat, nil
 }
 
 // GetTree obtiene el árbol jerárquico de categorías
 func (r *CategoryRepository) GetTree(ctx context.Context, rootID *int64) ([]*repository.CategoryNode, error) {
-	var rows *sqlx.Rows
+	var rows pgx.Rows
 	var err error
 
 	if rootID == nil {
-		// Obtener todas las categorías
-		rows, err = r.db.QueryxContext(ctx, `
+		rows, err = r.db.Query(ctx, `
 			SELECT id, public_uuid, name, slug, description, icon, color_hex,
 				parent_id, level, path, total_events, total_tickets_sold, total_revenue,
 				is_active, is_featured, sort_order, meta_title, meta_description,
@@ -544,8 +569,7 @@ func (r *CategoryRepository) GetTree(ctx context.Context, rootID *int64) ([]*rep
 			ORDER BY parent_id NULLS FIRST, sort_order, name
 		`)
 	} else {
-		// Obtener subárbol desde rootID
-		rows, err = r.db.QueryxContext(ctx, `
+		rows, err = r.db.Query(ctx, `
 			WITH RECURSIVE category_tree AS (
 				SELECT id, public_uuid, name, slug, description, icon, color_hex,
 					parent_id, level, path, total_events, total_tickets_sold, total_revenue,
@@ -577,10 +601,24 @@ func (r *CategoryRepository) GetTree(ctx context.Context, rootID *int64) ([]*rep
 
 	for rows.Next() {
 		var cat entities.Category
-		err = rows.StructScan(&cat)
+		var description, icon, metaTitle, metaDescription *string
+		var parentID *int64
+
+		err = rows.Scan(
+			&cat.ID, &cat.PublicID, &cat.Name, &cat.Slug, &description, &icon, &cat.ColorHex,
+			&parentID, &cat.Level, &cat.Path, &cat.TotalEvents, &cat.TotalTicketsSold, &cat.TotalRevenue,
+			&cat.IsActive, &cat.IsFeatured, &cat.SortOrder, &metaTitle, &metaDescription,
+			&cat.CreatedAt, &cat.UpdatedAt,
+		)
 		if err != nil {
-			return nil, r.handleError(err, "failed to scan category")
+			return nil, r.handleError(err, "failed to scan category row")
 		}
+
+		cat.Description = description
+		cat.Icon = icon
+		cat.MetaTitle = metaTitle
+		cat.MetaDescription = metaDescription
+		cat.ParentID = parentID
 
 		node := &repository.CategoryNode{
 			Category: &cat,
@@ -598,4 +636,32 @@ func (r *CategoryRepository) GetTree(ctx context.Context, rootID *int64) ([]*rep
 	}
 
 	return roots, nil
+}
+
+// GetSlugsByEventID obtiene todos los slugs de categorías asociadas a un evento
+func (r *CategoryRepository) GetSlugsByEventID(ctx context.Context, eventID string) ([]string, error) {
+	query := `
+        SELECT DISTINCT c.slug
+        FROM ticketing.event_categories ec
+        JOIN ticketing.categories c ON ec.category_id = c.id
+        JOIN ticketing.events e ON ec.event_id = e.id
+        WHERE e.public_uuid = $1
+    `
+
+	rows, err := r.db.Query(ctx, query, eventID)
+	if err != nil {
+		return nil, r.handleError(err, "failed to get slugs by event ID")
+	}
+	defer rows.Close()
+
+	var slugs []string
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			return nil, r.handleError(err, "failed to scan slug")
+		}
+		slugs = append(slugs, slug)
+	}
+
+	return slugs, nil
 }

@@ -10,7 +10,7 @@ import (
 type Event struct {
 	ID                int64  `json:"id" db:"id"`
 	PublicID          string `json:"public_id" db:"public_uuid"`
-	OrganizerID       int64  `json:"organizer_id" db:"organizer_id"`
+	OrganizerID       *int64 `json:"organizer_id" db:"organizer_id"`
 	PrimaryCategoryID *int64 `json:"primary_category_id,omitempty" db:"primary_category_id"`
 	VenueID           *int64 `json:"venue_id,omitempty" db:"venue_id"`
 
@@ -18,11 +18,11 @@ type Event struct {
 	Slug             string  `json:"slug" db:"slug"`
 	ShortDescription *string `json:"short_description,omitempty" db:"short_description"`
 	Description      *string `json:"description,omitempty" db:"description"`
-	EventType        string  `json:"event_type" db:"event_type"`
+	EventType        *string `json:"event_type" db:"event_type"`
 
 	CoverImageURL  *string `json:"cover_image_url,omitempty" db:"cover_image_url"`
 	BannerImageURL *string `json:"banner_image_url,omitempty" db:"banner_image_url"`
-	// CORREGIDO: gallery_images es JSONB, no string
+	// GalleryImages es JSONB
 	GalleryImages *[]string `json:"gallery_images,omitempty" db:"gallery_images,type:jsonb"`
 
 	Timezone     string     `json:"timezone" db:"timezone"`
@@ -42,11 +42,10 @@ type Event struct {
 	IsFeatured bool   `json:"is_featured" db:"is_featured"`
 	IsFree     bool   `json:"is_free" db:"is_free"`
 
-	// CORREGIDO: Usamos int en lugar de int32 para INTEGER en PostgreSQL
 	MaxAttendees *int `json:"max_attendees,omitempty" db:"max_attendees"`
 	MinAttendees int  `json:"min_attendees" db:"min_attendees"`
 
-	// CORREGIDO: tags es JSONB, no string
+	// Tags es JSONB
 	Tags           *[]string `json:"tags,omitempty" db:"tags,type:jsonb"`
 	AgeRestriction *int      `json:"age_restriction,omitempty" db:"age_restriction"`
 
@@ -61,7 +60,7 @@ type Event struct {
 	MetaTitle       *string `json:"meta_title,omitempty" db:"meta_title"`
 	MetaDescription *string `json:"meta_description,omitempty" db:"meta_description"`
 
-	// CORREGIDO: settings es JSONB con estructura definida, no string
+	// Settings es JSONB
 	Settings *EventSettings `json:"settings,omitempty" db:"settings,type:jsonb"`
 
 	PublishedAt *time.Time `json:"published_at,omitempty" db:"published_at"`
@@ -78,7 +77,15 @@ type EventSettings struct {
 	CheckinMethod             string `json:"checkin_method"` // qr_code, manual, rfid
 }
 
-// Métodos de utilidad para Event
+// ============================================================================
+// MÉTODOS DE LA ENTIDAD (TODOS DENTRO DE FUNCIONES)
+// ============================================================================
+
+// CanAddTicketTypes verifica si se pueden agregar tipos de ticket al evento
+func (e *Event) CanAddTicketTypes() bool {
+	// Permitir en draft Y published
+	return e.Status == "draft" || e.Status == "published"
+}
 
 // IsPublished verifica si el evento está publicado
 func (e *Event) IsPublished() bool {

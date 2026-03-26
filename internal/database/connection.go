@@ -1,3 +1,4 @@
+// internal/database/connection.go
 package database
 
 import (
@@ -7,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
@@ -18,6 +20,11 @@ func init() {
 	if err != nil {
 		log.Println("No .env file found, using system environment")
 	}
+}
+
+// GetConnString devuelve la cadena de conexión (útil para sqlx)
+func GetConnString() string {
+	return getConnectionString()
 }
 
 // Init inicializa la conexión a la base de datos usando pgxpool
@@ -35,6 +42,16 @@ func Init() error {
 	config.MaxConnIdleTime = 2 * time.Minute
 	config.HealthCheckPeriod = 1 * time.Minute
 
+	// Configurar search_path por cada conexión
+	config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, "SET search_path TO ticketing, public")
+		if err != nil {
+			return fmt.Errorf("failed to set search_path: %w", err)
+		}
+		log.Println("✅ search_path configurado a ticketing, public")
+		return nil
+	}
+
 	Pool, err = pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
 		return fmt.Errorf("unable to create connection pool: %w", err)
@@ -47,7 +64,7 @@ func Init() error {
 		return fmt.Errorf("unable to ping database: %w", err)
 	}
 
-	log.Printf("Database connected successfully (connections: %d)", config.MaxConns)
+	log.Printf("✅ Database connected successfully (connections: %d)", config.MaxConns)
 	return nil
 }
 
@@ -71,7 +88,7 @@ func getConnectionString() string {
 func mustEnv(key string) string {
 	value := os.Getenv(key)
 	if value == "" {
-		log.Fatalf("Missing required environment variable: %s", key)
+		log.Fatalf("❌ Missing required environment variable: %s", key)
 	}
 	return value
 }
@@ -83,13 +100,15 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
+// Close cierra el pool de conexiones
 func Close() {
 	if Pool != nil {
 		Pool.Close()
-		log.Println("Database connection closed")
+		log.Println("✅ Database connection closed")
 	}
 }
 
+// HealthCheck verifica la salud de la base de datos
 func HealthCheck() error {
 	if Pool == nil {
 		return fmt.Errorf("database pool is not initialized")
@@ -101,6 +120,7 @@ func HealthCheck() error {
 	return Pool.Ping(ctx)
 }
 
+// GetStats obtiene estadísticas del pool
 func GetStats() *pgxpool.Stat {
 	if Pool == nil {
 		return nil

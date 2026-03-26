@@ -32,8 +32,6 @@ func NewCategoryHandler(categoryService *services.CategoryService) *CategoryHand
 // ============================================================================
 
 // CreateCategory maneja la creación de una nueva categoría
-// Nota: En tu proto, CreateCategoryRequest tiene campos como price, quantity_available, etc.
-// que pertenecen a TicketType, no a Category. Esto es un desajuste conceptual.
 func (h *CategoryHandler) CreateCategory(ctx context.Context, req *osmi.CreateCategoryRequest) (*osmi.CategoryResponse, error) {
 	// Validaciones básicas
 	if req.Name == "" {
@@ -64,27 +62,22 @@ func (h *CategoryHandler) CreateCategory(ctx context.Context, req *osmi.CreateCa
 	}
 
 	// Llamar al servicio
-	// Después de crear la categoría (línea 54)
 	category, err := h.categoryService.CreateCategory(ctx, createReq)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	// 🔴 NUEVO: Asociar la categoría al evento
+	// Asociar la categoría al evento
 	err = h.categoryService.AddEventToCategory(ctx, req.EventId, category.PublicID, false)
 	if err != nil {
-		// Si falla la asociación, podríamos eliminar la categoría o solo loguear
-		// Por ahora, solo logueamos el error
 		log.Printf("Warning: failed to associate category with event: %v", err)
 	}
 
-	// NOTA: El campo EventId en la respuesta podría no ser el más adecuado
-	// ya que la relación es many-to-many. Por ahora lo dejamos como viene en el request.
 	return h.categoryToResponse(category, req.EventId), nil
 }
 
 // GetEventCategories obtiene las categorías de un evento
-func (h *CategoryHandler) GetEventCategories(ctx context.Context, req *osmi.EventLookup) (*osmi.CategoryListResponse, error) {
+func (h *CategoryHandler) GetEventCategories(ctx context.Context, req *osmi.GetEventCategoriesRequest) (*osmi.CategoryListResponse, error) {
 	if req.PublicId == "" {
 		return nil, status.Error(codes.InvalidArgument, "event public_id is required")
 	}
@@ -98,12 +91,9 @@ func (h *CategoryHandler) GetEventCategories(ctx context.Context, req *osmi.Even
 	// Convertir a respuesta
 	pbCategories := make([]*osmi.CategoryResponse, len(categories))
 	for i, category := range categories {
-		// Nota: No tenemos event_id aquí, pero el proto lo requiere.
-		// Usamos el public_id del evento que recibimos.
 		pbCategories[i] = h.categoryToResponse(category, req.PublicId)
 	}
 
-	// Obtener nombre del evento (opcional, podrías obtenerlo del servicio)
 	eventName := ""
 
 	return &osmi.CategoryListResponse{
@@ -114,41 +104,25 @@ func (h *CategoryHandler) GetEventCategories(ctx context.Context, req *osmi.Even
 }
 
 // ============================================================================
-// MÉTODOS QUE NO EXISTEN EN EL PROTO (ELIMINADOS)
-// ============================================================================
-// Los siguientes métodos NO existen en OsmiServiceServer según tu proto:
-// - GetCategory
-// - ListCategories
-// Por lo tanto, NO deben estar implementados aquí.
-
-// ============================================================================
 // FUNCIONES HELPER
 // ============================================================================
 
 // categoryToResponse convierte una entidad Category a proto CategoryResponse
-// Recibe eventID porque el proto CategoryResponse lo requiere (aunque no sea lo ideal)
+// CORREGIDO: Eliminados TODOS los campos que ya no existen en el proto
 func (h *CategoryHandler) categoryToResponse(category *entities.Category, eventID string) *osmi.CategoryResponse {
 	resp := &osmi.CategoryResponse{
-		PublicId:           category.PublicID,
-		EventId:            eventID,
-		Name:               category.Name,
-		Description:        helpers.SafeStringPtr(category.Description),
-		Price:              0,   // No aplica - usar TicketType
-		QuantityAvailable:  0,   // No aplica - usar TicketType
-		QuantitySold:       0,   // No aplica - usar TicketType
-		MaxTicketsPerOrder: 0,   // No aplica - usar TicketType
-		SalesStart:         nil, // No aplica
-		SalesEnd:           nil, // No aplica
-		Benefits:           []string{},
-		IsActive:           category.IsActive,
-		CreatedAt:          timestamppb.New(category.CreatedAt),
-		UpdatedAt:          timestamppb.New(category.UpdatedAt),
+		PublicId:    category.PublicID,
+		EventId:     eventID,
+		Name:        category.Name,
+		Description: helpers.SafeStringPtr(category.Description),
+		IsActive:    category.IsActive,
+		CreatedAt:   timestamppb.New(category.CreatedAt),
+		UpdatedAt:   timestamppb.New(category.UpdatedAt),
 	}
 	return resp
 }
 
-// generateSlug genera un slug simple (puede moverse a helpers si se usa en varios lugares)
+// generateSlug genera un slug simple
 func generateSlug(name string) string {
 	return strings.ToLower(strings.ReplaceAll(name, " ", "-"))
-
 }

@@ -10,6 +10,7 @@ type Config struct {
 	Server   ServerConfig
 	JWT      JWTConfig
 	Redis    RedisConfig
+	GRPCPort string
 }
 
 type DatabaseConfig struct {
@@ -40,6 +41,7 @@ type RedisConfig struct {
 
 func Load() *Config {
 	return &Config{
+		GRPCPort: "50051",
 		Database: DatabaseConfig{
 			URL:             getEnv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/osmi"),
 			MaxOpenConns:    getEnvAsInt("DB_MAX_OPEN_CONNS", 25),

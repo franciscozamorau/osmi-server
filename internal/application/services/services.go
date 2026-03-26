@@ -157,29 +157,22 @@ func (s *Server) CreateCategory(ctx context.Context, req *osmi.CreateCategoryReq
 
 	log.Printf("Category created successfully: %s", category.PublicID)
 
-	// Construir respuesta
+	// Construir respuesta - CORREGIDO: eliminados campos que ya no existen
 	response := &osmi.CategoryResponse{
-		PublicId:           category.PublicID,
-		EventId:            req.EventId,
-		Name:               category.Name,
-		Description:        safeStringPtr(category.Description),
-		Price:              req.Price,
-		QuantityAvailable:  req.QuantityAvailable,
-		QuantitySold:       0,
-		MaxTicketsPerOrder: req.MaxTicketsPerOrder,
-		SalesStart:         req.SalesStart,
-		SalesEnd:           req.SalesEnd,
-		Benefits:           req.Benefits,
-		IsActive:           category.IsActive,
-		CreatedAt:          timestamppb.New(category.CreatedAt),
-		UpdatedAt:          timestamppb.New(category.UpdatedAt),
+		PublicId:    category.PublicID,
+		EventId:     req.EventId,
+		Name:        category.Name,
+		Description: safeStringPtr(category.Description),
+		IsActive:    category.IsActive,
+		CreatedAt:   timestamppb.New(category.CreatedAt),
+		UpdatedAt:   timestamppb.New(category.UpdatedAt),
 	}
 
 	return response, nil
 }
 
 // GetEventCategories obtiene categorías de un evento
-func (s *Server) GetEventCategories(ctx context.Context, req *osmi.EventLookup) (*osmi.CategoryListResponse, error) {
+func (s *Server) GetEventCategories(ctx context.Context, req *osmi.GetEventCategoriesRequest) (*osmi.CategoryListResponse, error) {
 	log.Printf("Getting categories for event: %s", req.PublicId)
 
 	// Obtener el evento
@@ -195,23 +188,17 @@ func (s *Server) GetEventCategories(ctx context.Context, req *osmi.EventLookup) 
 		return nil, fmt.Errorf("error retrieving categories: %w", err)
 	}
 
-	// Convertir categorías a protobuf
+	// Convertir categorías a protobuf - CORREGIDO
 	pbCategories := make([]*osmi.CategoryResponse, 0, len(categories))
 	for _, category := range categories {
 		catResponse := &osmi.CategoryResponse{
-			PublicId:           category.PublicID,
-			EventId:            req.PublicId,
-			Name:               category.Name,
-			Description:        safeStringPtr(category.Description),
-			Price:              0,
-			QuantityAvailable:  0,
-			QuantitySold:       0,
-			MaxTicketsPerOrder: 0,
-			SalesStart:         timestamppb.New(time.Now()),
-			Benefits:           []string{},
-			IsActive:           category.IsActive,
-			CreatedAt:          timestamppb.New(category.CreatedAt),
-			UpdatedAt:          timestamppb.New(category.UpdatedAt),
+			PublicId:    category.PublicID,
+			EventId:     req.PublicId,
+			Name:        category.Name,
+			Description: safeStringPtr(category.Description),
+			IsActive:    category.IsActive,
+			CreatedAt:   timestamppb.New(category.CreatedAt),
+			UpdatedAt:   timestamppb.New(category.UpdatedAt),
 		}
 		pbCategories = append(pbCategories, catResponse)
 	}
@@ -268,6 +255,9 @@ func (s *Server) CreateEvent(ctx context.Context, req *osmi.CreateEventRequest) 
 	// Por ahora, lo dejo como nil
 	var tags *[]string = nil
 
+	// 1. Declara la variable con el valor por defecto
+	defaultEventType := "in_person"
+
 	// Crear evento
 	event := &entities.Event{
 		PublicID:         publicID,
@@ -275,7 +265,7 @@ func (s *Server) CreateEvent(ctx context.Context, req *osmi.CreateEventRequest) 
 		Slug:             strings.ToLower(strings.ReplaceAll(req.Name, " ", "-")),
 		ShortDescription: &req.ShortDescription,
 		Description:      &req.Description,
-		EventType:        "in_person",
+		EventType:        &defaultEventType,
 		Timezone:         "UTC",
 		StartsAt:         startsAt,
 		EndsAt:           endsAt,
@@ -325,7 +315,7 @@ func (s *Server) CreateEvent(ctx context.Context, req *osmi.CreateEventRequest) 
 }
 
 // GetEvent implementa el método gRPC para obtener eventos
-func (s *Server) GetEvent(ctx context.Context, req *osmi.EventLookup) (*osmi.EventResponse, error) {
+func (s *Server) GetEvent(ctx context.Context, req *osmi.GetEventRequest) (*osmi.EventResponse, error) {
 	log.Printf("Getting event: %s", req.PublicId)
 
 	if !isValidUUID(req.PublicId) {
@@ -478,36 +468,14 @@ func (s *Server) CreateCustomer(ctx context.Context, req *osmi.CreateCustomerReq
 }
 
 // GetCustomer obtiene un cliente
-func (s *Server) GetCustomer(ctx context.Context, req *osmi.CustomerLookup) (*osmi.CustomerResponse, error) {
-	var customer *entities.Customer
-	var err error
+func (s *Server) GetCustomer(ctx context.Context, req *osmi.GetCustomerRequest) (*osmi.CustomerResponse, error) {
+	log.Printf("Getting customer by PublicId: %s", req.PublicId)
 
-	switch lookup := req.Lookup.(type) {
-	case *osmi.CustomerLookup_Id:
-		log.Printf("Getting customer by ID: %d", lookup.Id)
-		if lookup.Id <= 0 {
-			return nil, fmt.Errorf("customer ID must be positive")
-		}
-		customer, err = s.CustomerRepo.GetByID(ctx, int64(lookup.Id))
-
-	case *osmi.CustomerLookup_PublicId:
-		log.Printf("Getting customer by PublicId: %s", lookup.PublicId)
-		if !isValidUUID(lookup.PublicId) {
-			return nil, fmt.Errorf("invalid public_id format: must be a valid UUID")
-		}
-		customer, err = s.CustomerRepo.GetByPublicID(ctx, lookup.PublicId)
-
-	case *osmi.CustomerLookup_Email:
-		log.Printf("Getting customer by Email: %s", lookup.Email)
-		if strings.TrimSpace(lookup.Email) == "" {
-			return nil, fmt.Errorf("email cannot be empty")
-		}
-		customer, err = s.CustomerRepo.GetByEmail(ctx, lookup.Email)
-
-	default:
-		return nil, fmt.Errorf("no valid lookup parameter provided")
+	if !isValidUUID(req.PublicId) {
+		return nil, fmt.Errorf("invalid public_id format: must be a valid UUID")
 	}
 
+	customer, err := s.CustomerRepo.GetByPublicID(ctx, req.PublicId)
 	if err != nil {
 		log.Printf("Error getting customer: %v", err)
 		return nil, fmt.Errorf("customer not found")
@@ -596,7 +564,7 @@ func (s *Server) CreateUser(ctx context.Context, req *osmi.CreateUserRequest) (*
 }
 
 // GetUser obtiene un usuario
-func (s *Server) GetUser(ctx context.Context, req *osmi.UserLookup) (*osmi.UserResponse, error) {
+func (s *Server) GetUser(ctx context.Context, req *osmi.GetUserRequest) (*osmi.UserResponse, error) {
 	log.Printf("Getting user: %s", req.UserId)
 
 	if !isValidUUID(req.UserId) {
@@ -625,16 +593,16 @@ func (s *Server) GetUser(ctx context.Context, req *osmi.UserLookup) (*osmi.UserR
 
 // CreateTicket implementa el método gRPC para crear tickets
 func (s *Server) CreateTicket(ctx context.Context, req *osmi.CreateTicketRequest) (*osmi.TicketResponse, error) {
-	log.Printf("CreateTicket called with event_id: %s, user_id: %s, category_id: %s, quantity: %d",
+	log.Printf("CreateTicket called with event_id: %s, user_id: %s, ticket_type_id: %s, quantity: %d",
 		truncateString(req.EventId, 50), truncateString(req.UserId, 50),
-		truncateString(req.CategoryId, 50), req.Quantity)
+		truncateString(req.TicketTypeId, 50), req.Quantity)
 
 	// Validaciones básicas
 	if strings.TrimSpace(req.EventId) == "" {
 		return nil, fmt.Errorf("event_id is required")
 	}
-	if strings.TrimSpace(req.CategoryId) == "" {
-		return nil, fmt.Errorf("category_id is required")
+	if strings.TrimSpace(req.TicketTypeId) == "" {
+		return nil, fmt.Errorf("ticket_type_id is required")
 	}
 	if req.Quantity <= 0 {
 		req.Quantity = 1
@@ -661,7 +629,7 @@ func (s *Server) ListTickets(ctx context.Context, req *osmi.ListTicketsRequest) 
 }
 
 // GetUserTickets obtiene tickets de un usuario específico
-func (s *Server) GetUserTickets(ctx context.Context, req *osmi.UserLookup) (*osmi.TicketListResponse, error) {
+func (s *Server) GetUserTickets(ctx context.Context, req *osmi.GetUserTicketsRequest) (*osmi.TicketListResponse, error) {
 	log.Printf("GetUserTickets called for user: %s", req.UserId)
 
 	// Por ahora, retornar lista vacía
@@ -672,8 +640,8 @@ func (s *Server) GetUserTickets(ctx context.Context, req *osmi.UserLookup) (*osm
 }
 
 // GetCustomerTickets obtiene tickets de un cliente específico
-func (s *Server) GetCustomerTickets(ctx context.Context, req *osmi.CustomerLookup) (*osmi.TicketListResponse, error) {
-	log.Printf("GetCustomerTickets called for customer")
+func (s *Server) GetCustomerTickets(ctx context.Context, req *osmi.GetCustomerTicketsRequest) (*osmi.TicketListResponse, error) {
+	log.Printf("GetCustomerTickets called for customer: %s", req.PublicId)
 
 	// Por ahora, retornar lista vacía
 	return &osmi.TicketListResponse{

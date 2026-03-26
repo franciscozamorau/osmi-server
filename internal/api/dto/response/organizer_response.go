@@ -14,14 +14,14 @@ type OrganizerAddress struct {
 
 // OrganizerStats representa estadísticas del organizador
 type OrganizerStats struct {
-	TotalRevenue       float64 `json:"total_revenue"`
-	AvgRevenuePerEvent float64 `json:"avg_revenue_per_event"`
-	AvgTicketsPerEvent float64 `json:"avg_tickets_per_event"`
-	SellOutRate        float64 `json:"sell_out_rate"`
-	RepeatCustomerRate float64 `json:"repeat_customer_rate"`
-	UpcomingEventCount int     `json:"upcoming_event_count"`
-	PastEventCount     int     `json:"past_event_count"`
-	CancellationRate   float64 `json:"cancellation_rate"`
+	TotalRevenue       float64
+	AvgRevenuePerEvent float64
+	AvgTicketsPerEvent float64
+	SellOutRate        float64
+	RepeatCustomerRate float64
+	UpcomingEventCount int
+	PastEventCount     int
+	CancellationRate   float64
 }
 
 // OrganizerFilter representa los filtros aplicados en la consulta

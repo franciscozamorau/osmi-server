@@ -1,3 +1,4 @@
+// internal/domain/repository/organizer_repository.go
 package repository
 
 import (
@@ -43,10 +44,10 @@ type OrganizerRepository interface {
 	HasEvents(ctx context.Context, organizerID int64) (bool, error)
 
 	// Estadísticas
-	GetStats(ctx context.Context, organizerID int64) (*dto.OrganizerStatsResponse, error)
-	GetGlobalStats(ctx context.Context) (*dto.OrganizerGlobalStats, error)
+	//GetStats(ctx context.Context, organizerID int64) (*dto.OrganizerStatsResponse, error)
+	//GetGlobalStats(ctx context.Context) (*dto.OrganizerGlobalStats, error)
 	CountEvents(ctx context.Context, organizerID int64) (int64, error)
 	GetTotalRevenue(ctx context.Context, organizerID int64) (float64, error)
 	GetAverageRating(ctx context.Context, organizerID int64) (float64, error)
-	GetTopOrganizers(ctx context.Context, limit int) ([]*dto.TopOrganizer, error)
+	//GetTopOrganizers(ctx context.Context, limit int) ([]*dto.TopOrganizer, error)
 }
