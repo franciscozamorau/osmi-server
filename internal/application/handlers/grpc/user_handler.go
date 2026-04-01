@@ -6,7 +6,7 @@ import (
 	"strconv"
 
 	osmi "github.com/franciscozamorau/osmi-protobuf/gen/pb"
-	"github.com/franciscozamorau/osmi-server/internal/api/dto/request"
+	userdto "github.com/franciscozamorau/osmi-server/internal/api/dto/user" // ← CAMBIADO
 	"github.com/franciscozamorau/osmi-server/internal/api/helpers"
 	"github.com/franciscozamorau/osmi-server/internal/application/services"
 	"github.com/golang-jwt/jwt/v5"
@@ -50,7 +50,7 @@ func (h *UserHandler) CreateUser(ctx context.Context, req *osmi.CreateUserReques
 	}
 
 	// Convertir protobuf a DTO
-	createReq := &request.CreateUserRequest{
+	createReq := &userdto.CreateUserRequest{ // ← CAMBIADO
 		Username: req.Name,
 		Email:    req.Email,
 		Password: req.Password,

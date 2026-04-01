@@ -14,7 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/franciscozamorau/osmi-server/internal/api/dto"
+	commondto "github.com/franciscozamorau/osmi-server/internal/api/dto/common"
+	tickettypedto "github.com/franciscozamorau/osmi-server/internal/api/dto/ticket_type"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 	"github.com/franciscozamorau/osmi-server/internal/domain/repository"
 )
@@ -41,20 +42,18 @@ func (r *TicketTypeRepository) handleError(err error, context string) error {
 		return nil
 	}
 
-	// Para pgx, los errores son diferentes
 	if errors.Is(err, pgx.ErrNoRows) {
 		return repository.ErrTicketNotFound
 	}
 
-	// Verificar si es un error de PostgreSQL con código
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
-		case "23505": // Unique violation
+		case "23505":
 			if strings.Contains(pgErr.ConstraintName, "ticket_types_public_uuid_key") {
 				return repository.ErrTicketAlreadyExists
 			}
-		case "23503": // Foreign key violation
+		case "23503":
 			return fmt.Errorf("referenced event not found: %w", err)
 		}
 	}
@@ -164,7 +163,6 @@ func (r *TicketTypeRepository) FindByID(ctx context.Context, id int64) (*entitie
 		return nil, r.handleError(err, "failed to get ticket type by ID")
 	}
 
-	// Manejar NULLs
 	if description != nil {
 		tt.Description = description
 	}
@@ -172,7 +170,6 @@ func (r *TicketTypeRepository) FindByID(ctx context.Context, id int64) (*entitie
 		tt.SaleEndsAt = saleEndsAt
 	}
 
-	// Deserializar JSONB
 	if len(benefitsJSON) > 0 {
 		if err := json.Unmarshal(benefitsJSON, &tt.Benefits); err != nil {
 			log.Printf("⚠️ Error deserializando benefits: %v", err)
@@ -242,7 +239,6 @@ func (r *TicketTypeRepository) FindByPublicID(ctx context.Context, publicID stri
 		return nil, r.handleError(err, "failed to get ticket type by public ID")
 	}
 
-	// Manejar NULLs
 	if description != nil {
 		tt.Description = description
 	}
@@ -250,7 +246,6 @@ func (r *TicketTypeRepository) FindByPublicID(ctx context.Context, publicID stri
 		tt.SaleEndsAt = saleEndsAt
 	}
 
-	// Deserializar JSONB
 	if len(benefitsJSON) > 0 {
 		if err := json.Unmarshal(benefitsJSON, &tt.Benefits); err != nil {
 			log.Printf("⚠️ Error deserializando benefits: %v", err)
@@ -275,7 +270,6 @@ func (r *TicketTypeRepository) FindByPublicID(ctx context.Context, publicID stri
 
 // Update actualiza un tipo de ticket
 func (r *TicketTypeRepository) Update(ctx context.Context, ticketType *entities.TicketType) error {
-	// Verificar existencia
 	_, err := r.FindByID(ctx, ticketType.ID)
 	if err != nil {
 		return repository.ErrTicketNotFound
@@ -372,7 +366,7 @@ func (r *TicketTypeRepository) Exists(ctx context.Context, id int64) (bool, erro
 // ============================================================================
 
 // List lista con filtros y paginación
-func (r *TicketTypeRepository) List(ctx context.Context, filter dto.TicketTypeFilter, pagination dto.Pagination) ([]*entities.TicketType, int64, error) {
+func (r *TicketTypeRepository) List(ctx context.Context, filter tickettypedto.TicketTypeFilter, pagination commondto.Pagination) ([]*entities.TicketType, int64, error) {
 	where := []string{"1=1"}
 	args := []interface{}{}
 	argPos := 1
@@ -475,7 +469,6 @@ func (r *TicketTypeRepository) List(ctx context.Context, filter dto.TicketTypeFi
 			return nil, 0, r.handleError(err, "failed to scan ticket type row")
 		}
 
-		// Manejar NULLs
 		if description != nil {
 			tt.Description = description
 		}
@@ -483,7 +476,6 @@ func (r *TicketTypeRepository) List(ctx context.Context, filter dto.TicketTypeFi
 			tt.SaleEndsAt = saleEndsAt
 		}
 
-		// Deserializar benefits
 		if len(benefitsJSON) > 0 {
 			if err := json.Unmarshal(benefitsJSON, &tt.Benefits); err != nil {
 				tt.Benefits = []string{}
@@ -492,7 +484,6 @@ func (r *TicketTypeRepository) List(ctx context.Context, filter dto.TicketTypeFi
 			tt.Benefits = []string{}
 		}
 
-		// Deserializar validationRules
 		if len(validationRulesJSON) > 0 {
 			var rules entities.ValidationRules
 			if err := json.Unmarshal(validationRulesJSON, &rules); err == nil {
@@ -563,7 +554,6 @@ func (r *TicketTypeRepository) FindByEvent(ctx context.Context, eventID int64, a
 			return nil, r.handleError(err, "failed to scan ticket type row")
 		}
 
-		// Manejar NULLs
 		if description != nil {
 			tt.Description = description
 		}
@@ -571,12 +561,10 @@ func (r *TicketTypeRepository) FindByEvent(ctx context.Context, eventID int64, a
 			tt.SaleEndsAt = saleEndsAt
 		}
 
-		// Deserializar benefits
 		if len(benefitsJSON) > 0 {
 			json.Unmarshal(benefitsJSON, &tt.Benefits)
 		}
 
-		// Deserializar validationRules
 		if len(validationRulesJSON) > 0 {
 			var rules entities.ValidationRules
 			if json.Unmarshal(validationRulesJSON, &rules) == nil {
@@ -632,7 +620,6 @@ func (r *TicketTypeRepository) FindByEventPublicID(ctx context.Context, eventPub
 			return nil, r.handleError(err, "failed to scan ticket type row")
 		}
 
-		// Manejar NULLs
 		if description != nil {
 			tt.Description = description
 		}
@@ -640,12 +627,10 @@ func (r *TicketTypeRepository) FindByEventPublicID(ctx context.Context, eventPub
 			tt.SaleEndsAt = saleEndsAt
 		}
 
-		// Deserializar benefits
 		if len(benefitsJSON) > 0 {
 			json.Unmarshal(benefitsJSON, &tt.Benefits)
 		}
 
-		// Deserializar validationRules
 		if len(validationRulesJSON) > 0 {
 			var rules entities.ValidationRules
 			if json.Unmarshal(validationRulesJSON, &rules) == nil {
@@ -713,7 +698,6 @@ func (r *TicketTypeRepository) FindAvailable(ctx context.Context, eventID int64)
 			return nil, r.handleError(err, "failed to scan ticket type row")
 		}
 
-		// Manejar NULLs
 		if description != nil {
 			tt.Description = description
 		}
@@ -721,12 +705,10 @@ func (r *TicketTypeRepository) FindAvailable(ctx context.Context, eventID int64)
 			tt.SaleEndsAt = saleEndsAt
 		}
 
-		// Deserializar benefits
 		if len(benefitsJSON) > 0 {
 			json.Unmarshal(benefitsJSON, &tt.Benefits)
 		}
 
-		// Deserializar validationRules
 		if len(validationRulesJSON) > 0 {
 			var rules entities.ValidationRules
 			if json.Unmarshal(validationRulesJSON, &rules) == nil {
@@ -790,7 +772,6 @@ func (r *TicketTypeRepository) FindSoldOut(ctx context.Context, eventID int64) (
 			return nil, r.handleError(err, "failed to scan ticket type row")
 		}
 
-		// Manejar NULLs
 		if description != nil {
 			tt.Description = description
 		}
@@ -798,12 +779,10 @@ func (r *TicketTypeRepository) FindSoldOut(ctx context.Context, eventID int64) (
 			tt.SaleEndsAt = saleEndsAt
 		}
 
-		// Deserializar benefits
 		if len(benefitsJSON) > 0 {
 			json.Unmarshal(benefitsJSON, &tt.Benefits)
 		}
 
-		// Deserializar validationRules
 		if len(validationRulesJSON) > 0 {
 			var rules entities.ValidationRules
 			if json.Unmarshal(validationRulesJSON, &rules) == nil {
@@ -930,7 +909,6 @@ func (r *TicketTypeRepository) CancelSoldTickets(ctx context.Context, ticketType
 
 // RefundTickets reembolsa tickets vendidos
 func (r *TicketTypeRepository) RefundTickets(ctx context.Context, ticketTypeID int64, quantity int) error {
-	// Por ahora, es igual que cancelar (pueden diferenciarse después)
 	query := `
 		UPDATE ticketing.ticket_types
 		SET sold_quantity = GREATEST(0, sold_quantity - $1),
@@ -1106,31 +1084,34 @@ func (r *TicketTypeRepository) GetSalesVelocity(ctx context.Context, ticketTypeI
 }
 
 // GetStats obtiene estadísticas completas
-func (r *TicketTypeRepository) GetStats(ctx context.Context, ticketTypeID int64) (*dto.TicketTypeStatsResponse, error) {
+func (r *TicketTypeRepository) GetStats(ctx context.Context, ticketTypeID int64) (*tickettypedto.TicketTypeStatsResponse, error) {
 	query := `
-		SELECT 
-			COUNT(*) as total_types,
-			COUNT(CASE WHEN is_active = true THEN 1 END) as active_types,
-			COUNT(CASE WHEN is_sold_out = true THEN 1 END) as sold_out_types,
-			SUM(total_quantity) as total_capacity,
-			SUM(sold_quantity) as tickets_sold,
-			SUM(reserved_quantity) as tickets_reserved,
-			COALESCE(SUM(sold_quantity * base_price), 0) as total_revenue,
-			COALESCE(AVG(base_price), 0) as avg_price
-		FROM ticketing.ticket_types
-		WHERE id = $1
-	`
+        SELECT 
+            total_quantity as total_tickets,
+            reserved_quantity as reserved_tickets,
+            sold_quantity as sold_tickets,
+            total_quantity - sold_quantity - reserved_quantity as available_tickets,
+            COALESCE(SUM(sold_quantity * base_price), 0) as total_revenue,
+            COALESCE(AVG(base_price), 0) as avg_ticket_price,
+            CASE 
+                WHEN total_quantity > 0 
+                THEN (sold_quantity::float / total_quantity::float) * 100 
+                ELSE 0 
+            END as sell_through_rate
+        FROM ticketing.ticket_types
+        WHERE id = $1
+        GROUP BY id, total_quantity, reserved_quantity, sold_quantity, base_price
+    `
 
-	var stats dto.TicketTypeStatsResponse
+	var stats tickettypedto.TicketTypeStatsResponse
 	err := r.db.QueryRow(ctx, query, ticketTypeID).Scan(
-		&stats.TotalTypes,
-		&stats.ActiveTypes,
-		&stats.SoldOutTypes,
-		&stats.TotalCapacity,
-		&stats.TicketsSold,
-		&stats.TicketsReserved,
+		&stats.TotalTickets,
+		&stats.ReservedTickets,
+		&stats.SoldTickets,
+		&stats.AvailableTickets,
 		&stats.TotalRevenue,
-		&stats.AvgPrice,
+		&stats.AvgTicketPrice,
+		&stats.SellThroughRate,
 	)
 	if err != nil {
 		return nil, r.handleError(err, "failed to get ticket type stats")
@@ -1139,7 +1120,7 @@ func (r *TicketTypeRepository) GetStats(ctx context.Context, ticketTypeID int64)
 }
 
 // GetEventTicketStats obtiene estadísticas de tickets para un evento
-func (r *TicketTypeRepository) GetEventTicketStats(ctx context.Context, eventID int64) (*dto.EventTicketStats, error) {
+func (r *TicketTypeRepository) GetEventTicketStats(ctx context.Context, eventID int64) (*tickettypedto.EventTicketStats, error) {
 	query := `
 		SELECT 
 			event_id,
@@ -1160,7 +1141,7 @@ func (r *TicketTypeRepository) GetEventTicketStats(ctx context.Context, eventID 
 		GROUP BY event_id
 	`
 
-	var stats dto.EventTicketStats
+	var stats tickettypedto.EventTicketStats
 	err := r.db.QueryRow(ctx, query, eventID).Scan(
 		&stats.EventID,
 		&stats.TicketTypeID,

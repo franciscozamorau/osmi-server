@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/franciscozamorau/osmi-server/internal/api/dto"
+	commondto "github.com/franciscozamorau/osmi-server/internal/api/dto/common"
+	customerdto "github.com/franciscozamorau/osmi-server/internal/api/dto/customer"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 	"github.com/franciscozamorau/osmi-server/internal/domain/repository"
 	"github.com/google/uuid"
@@ -137,7 +138,7 @@ func (s *CustomerService) UpdateCustomer(ctx context.Context, publicID string, r
 }
 
 // ListCustomers lista clientes con filtros y paginación
-func (s *CustomerService) ListCustomers(ctx context.Context, filter *dto.CustomerFilter, pagination dto.Pagination) ([]*entities.Customer, int64, error) {
+func (s *CustomerService) ListCustomers(ctx context.Context, filter *customerdto.CustomerFilter, pagination commondto.Pagination) ([]*entities.Customer, int64, error) {
 	// Convertir filtro DTO a filtro del repositorio
 	repoFilter := &repository.CustomerFilter{
 		Limit:  pagination.PageSize,
@@ -172,7 +173,7 @@ func (s *CustomerService) ListCustomers(ctx context.Context, filter *dto.Custome
 }
 
 // GetCustomerStats obtiene estadísticas globales de clientes
-func (s *CustomerService) GetCustomerStats(ctx context.Context) (*dto.CustomerStatsResponse, error) {
+func (s *CustomerService) GetCustomerStats(ctx context.Context) (*customerdto.CustomerStatsResponse, error) {
 	// Usar el método del repositorio
 	stats, err := s.customerRepo.GetStats(ctx)
 	if err != nil {
@@ -180,22 +181,22 @@ func (s *CustomerService) GetCustomerStats(ctx context.Context) (*dto.CustomerSt
 	}
 
 	// Convertir a DTO
-	return &dto.CustomerStatsResponse{
+	return &customerdto.CustomerStatsResponse{
 		TotalCustomers:         stats.TotalCustomers,
 		ActiveCustomers:        stats.ActiveCustomers,
 		VIPCustomers:           stats.VIPCustomers,
 		NewCustomersLast30Days: stats.NewCustomersLast30Days,
 		TotalRevenue:           stats.TotalRevenue,
 		AvgLifetimeValue:       stats.AvgLifetimeValue,
-		TopCountries:           convertCountryStats(stats.TopCountries),
+		TopCountries:           convertCountryStatsToDTO(stats.TopCountries),
 	}, nil
 }
 
-// convertCountryStats convierte []repository.CountryStat a []dto.CountryStats
-func convertCountryStats(stats []repository.CountryStat) []dto.CountryStats {
-	result := make([]dto.CountryStats, len(stats))
+// convertCountryStatsToDTO convierte []repository.CountryStat a []customerdto.CountryStats
+func convertCountryStatsToDTO(stats []repository.CountryStat) []customerdto.CountryStats {
+	result := make([]customerdto.CountryStats, len(stats))
 	for i, stat := range stats {
-		result[i] = dto.CountryStats{
+		result[i] = customerdto.CountryStats{
 			Country: stat.Country,
 			Count:   stat.Count,
 			Revenue: stat.Revenue,

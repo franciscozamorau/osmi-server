@@ -1,3 +1,4 @@
+// internal/application/services/category_service.go
 package services
 
 import (
@@ -7,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/franciscozamorau/osmi-server/internal/api/dto/request"
+	categorydto "github.com/franciscozamorau/osmi-server/internal/api/dto/category"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 	"github.com/franciscozamorau/osmi-server/internal/domain/repository"
 )
@@ -72,15 +73,10 @@ func generateUniqueSlug(name string, existingSlugs []string) string {
 // ============================================================================
 
 // CreateCategory maneja la creación de una nueva categoría
-// NOTA: Este método NO recibe EventID porque la categoría se crea independientemente
-// La asociación con eventos se hace mediante AddEventToCategory
-func (s *CategoryService) CreateCategory(ctx context.Context, req *request.CreateCategoryRequest) (*entities.Category, error) {
-	// CORREGIDO: Eliminado el uso de req.EventID que no existe
-
+func (s *CategoryService) CreateCategory(ctx context.Context, req *categorydto.CreateCategoryRequest) (*entities.Category, error) {
 	// Obtener slugs existentes para generar uno único
-	// Obtenemos todas las categorías y extraemos sus slugs
 	categories, _, err := s.categoryRepo.Find(ctx, &repository.CategoryFilter{
-		Limit: 1000, // Un número grande para obtener todas
+		Limit: 1000,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get existing categories: %w", err)
@@ -92,7 +88,7 @@ func (s *CategoryService) CreateCategory(ctx context.Context, req *request.Creat
 		existingSlugs = append(existingSlugs, cat.Slug)
 	}
 
-	// Generar slug único (ignoramos el slug del request)
+	// Generar slug único
 	slug := generateUniqueSlug(req.Name, existingSlugs)
 
 	// Determinar nivel y padre
@@ -135,7 +131,7 @@ func (s *CategoryService) CreateCategory(ctx context.Context, req *request.Creat
 	// Crear entidad
 	category := &entities.Category{
 		Name:             req.Name,
-		Slug:             slug, // Usamos el slug generado, no el del request
+		Slug:             slug,
 		Description:      &description,
 		Icon:             &icon,
 		ColorHex:         req.ColorHex,
@@ -180,8 +176,8 @@ func (s *CategoryService) GetCategoryBySlug(ctx context.Context, slug string) (*
 }
 
 // ListCategories lista categorías con filtros y paginación
-func (s *CategoryService) ListCategories(ctx context.Context, filter *request.CategoryFilter, page, pageSize int) ([]*entities.Category, int64, error) {
-	// Crear filtro del repositorio con los parámetros de paginación incluidos
+func (s *CategoryService) ListCategories(ctx context.Context, filter *categorydto.CategoryFilter, page, pageSize int) ([]*entities.Category, int64, error) {
+	// Crear filtro del repositorio
 	repoFilter := &repository.CategoryFilter{
 		Limit:  pageSize,
 		Offset: (page - 1) * pageSize,
@@ -198,9 +194,6 @@ func (s *CategoryService) ListCategories(ctx context.Context, filter *request.Ca
 		}
 		if filter.ParentID != nil {
 			repoFilter.ParentID = filter.ParentID
-		} else if filter.IncludeDescendants {
-			zero := int64(0)
-			repoFilter.ParentID = &zero // 0 significa categorías raíz
 		}
 		if filter.MinLevel != nil {
 			repoFilter.MinLevel = filter.MinLevel
@@ -223,7 +216,7 @@ func (s *CategoryService) ListCategories(ctx context.Context, filter *request.Ca
 }
 
 // UpdateCategory actualiza una categoría existente
-func (s *CategoryService) UpdateCategory(ctx context.Context, publicID string, req *request.UpdateCategoryRequest) (*entities.Category, error) {
+func (s *CategoryService) UpdateCategory(ctx context.Context, publicID string, req *categorydto.UpdateCategoryRequest) (*entities.Category, error) {
 	category, err := s.categoryRepo.GetByPublicID(ctx, publicID)
 	if err != nil {
 		return nil, fmt.Errorf("category not found: %s", publicID)
@@ -236,7 +229,6 @@ func (s *CategoryService) UpdateCategory(ctx context.Context, publicID string, r
 
 	// Manejar actualización de slug
 	if req.Slug != nil && *req.Slug != category.Slug {
-		// Verificar si el nuevo slug ya existe
 		if existing, _ := s.categoryRepo.GetBySlug(ctx, *req.Slug); existing != nil && existing.PublicID != publicID {
 			return nil, fmt.Errorf("slug already exists: %s", *req.Slug)
 		}
@@ -325,7 +317,6 @@ func (s *CategoryService) AddEventToCategory(ctx context.Context, eventID, categ
 
 	// Actualizar contadores
 	if isPrimary {
-		// Si es primaria, actualizar contador de eventos en la categoría
 		category.TotalEvents++
 		if err := s.categoryRepo.Update(ctx, category); err != nil {
 			return fmt.Errorf("failed to update category event count: %w", err)

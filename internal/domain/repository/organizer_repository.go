@@ -4,7 +4,8 @@ package repository
 import (
 	"context"
 
-	"github.com/franciscozamorau/osmi-server/internal/api/dto"
+	commondto "github.com/franciscozamorau/osmi-server/internal/api/dto/common"
+	organizerdto "github.com/franciscozamorau/osmi-server/internal/api/dto/organizer"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 )
 
@@ -20,11 +21,11 @@ type OrganizerRepository interface {
 	SoftDelete(ctx context.Context, publicID string) error
 
 	// Búsquedas
-	List(ctx context.Context, filter dto.OrganizerFilter, pagination dto.Pagination) ([]*entities.Organizer, int64, error)
+	List(ctx context.Context, filter organizerdto.OrganizerFilter, pagination commondto.Pagination) ([]*entities.Organizer, int64, error)
 	ListVerified(ctx context.Context, limit int) ([]*entities.Organizer, error)
 	ListActive(ctx context.Context) ([]*entities.Organizer, error)
 	Search(ctx context.Context, term string, limit int) ([]*entities.Organizer, error)
-	FindByCountry(ctx context.Context, countryCode string, pagination dto.Pagination) ([]*entities.Organizer, int64, error)
+	FindByCountry(ctx context.Context, countryCode string, pagination commondto.Pagination) ([]*entities.Organizer, int64, error)
 
 	// Operaciones específicas
 	UpdateVerification(ctx context.Context, organizerID int64, verified bool, status string) error

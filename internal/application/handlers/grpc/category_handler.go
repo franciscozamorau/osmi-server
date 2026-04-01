@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	osmi "github.com/franciscozamorau/osmi-protobuf/gen/pb"
-	"github.com/franciscozamorau/osmi-server/internal/api/dto/request"
+	categorydto "github.com/franciscozamorau/osmi-server/internal/api/dto/category"
 	"github.com/franciscozamorau/osmi-server/internal/api/helpers"
 	"github.com/franciscozamorau/osmi-server/internal/application/services"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
@@ -49,7 +49,7 @@ func (h *CategoryHandler) CreateCategory(ctx context.Context, req *osmi.CreateCa
 	isFeatured := false
 	sortOrder := 0
 
-	createReq := &request.CreateCategoryRequest{
+	createReq := &categorydto.CreateCategoryRequest{
 		Name:        req.Name,
 		Slug:        slug,
 		Description: req.Description,
@@ -108,7 +108,6 @@ func (h *CategoryHandler) GetEventCategories(ctx context.Context, req *osmi.GetE
 // ============================================================================
 
 // categoryToResponse convierte una entidad Category a proto CategoryResponse
-// CORREGIDO: Eliminados TODOS los campos que ya no existen en el proto
 func (h *CategoryHandler) categoryToResponse(category *entities.Category, eventID string) *osmi.CategoryResponse {
 	resp := &osmi.CategoryResponse{
 		PublicId:    category.PublicID,

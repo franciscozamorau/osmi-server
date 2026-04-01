@@ -4,10 +4,12 @@ package grpc
 import (
 	"context"
 	"log"
+	"strings"
 	"time"
 
 	osmi "github.com/franciscozamorau/osmi-protobuf/gen/pb"
-	"github.com/franciscozamorau/osmi-server/internal/api/dto"
+	commondto "github.com/franciscozamorau/osmi-server/internal/api/dto/common"
+	eventdto "github.com/franciscozamorau/osmi-server/internal/api/dto/event"
 	"github.com/franciscozamorau/osmi-server/internal/api/helpers"
 	"github.com/franciscozamorau/osmi-server/internal/application/services"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
@@ -75,8 +77,17 @@ func (h *EventHandler) CreateEvent(ctx context.Context, req *osmi.CreateEventReq
 	}
 	log.Printf("🎯 Fechas parseadas: startsAt=%v, endsAt=%v", startsAt, endsAt)
 
+	// Procesar Tags (de string a []string)
+	var tags []string
+	if req.Tags != "" {
+		tags = strings.Split(req.Tags, ",")
+		for i, tag := range tags {
+			tags[i] = strings.TrimSpace(tag)
+		}
+	}
+
 	log.Println("🎯 Creando DTO...")
-	createReq := &dto.CreateEventRequest{
+	createReq := &eventdto.CreateEventRequest{
 		Name:                req.Name,
 		Slug:                req.Name,
 		Description:         req.Description,
@@ -85,10 +96,10 @@ func (h *EventHandler) CreateEvent(ctx context.Context, req *osmi.CreateEventReq
 		VenueID:             req.VenueId,
 		PrimaryCategoryID:   req.PrimaryCategoryId,
 		CategoryIDs:         req.CategoryIds,
-		StartsAt:            startsAt,
-		EndsAt:              endsAt,
-		DoorsOpenAt:         time.Time{},
-		DoorsCloseAt:        time.Time{},
+		StartsAt:            startsAt.Format(time.RFC3339),
+		EndsAt:              endsAt.Format(time.RFC3339),
+		DoorsOpenAt:         "",
+		DoorsCloseAt:        "",
 		Timezone:            req.Timezone,
 		EventType:           req.EventType,
 		CoverImageURL:       req.CoverImageUrl,
@@ -101,13 +112,13 @@ func (h *EventHandler) CreateEvent(ctx context.Context, req *osmi.CreateEventReq
 		Visibility:          req.Visibility,
 		IsFeatured:          req.IsFeatured,
 		IsFree:              req.IsFree,
-		MaxAttendees:        req.MaxAttendees,
-		MinAttendees:        req.MinAttendees,
-		Tags:                req.Tags,
-		AgeRestriction:      req.AgeRestriction,
+		MaxAttendees:        int(req.MaxAttendees),
+		MinAttendees:        int(req.MinAttendees),
+		Tags:                tags,
+		AgeRestriction:      int(req.AgeRestriction),
 		RequiresApproval:    req.RequiresApproval,
 		AllowReservations:   req.AllowReservations,
-		ReservationDuration: req.ReservationDuration,
+		ReservationDuration: int(req.ReservationDuration),
 	}
 	log.Printf("🎯 DTO creado: %+v", createReq)
 
@@ -126,7 +137,7 @@ func (h *EventHandler) CreateEvent(ctx context.Context, req *osmi.CreateEventReq
 	return resp, nil
 }
 
-// CORREGIDO: Ahora recibe GetEventRequest en lugar de EventLookup
+// GetEvent obtiene un evento por su ID público
 func (h *EventHandler) GetEvent(ctx context.Context, req *osmi.GetEventRequest) (*osmi.EventResponse, error) {
 	if req.PublicId == "" {
 		return nil, status.Error(codes.InvalidArgument, "event public_id is required")
@@ -142,30 +153,30 @@ func (h *EventHandler) GetEvent(ctx context.Context, req *osmi.GetEventRequest) 
 
 // ListEvents lista eventos con filtros y paginación
 func (h *EventHandler) ListEvents(ctx context.Context, req *osmi.ListEventsRequest) (*osmi.EventListResponse, error) {
-	// Convertir filtros
-	filter := dto.EventFilter{
-		Name:       req.Name,
-		Status:     req.Status,
-		DateFrom:   req.DateFrom,
-		DateTo:     req.DateTo,
-		City:       req.City,
-		Country:    req.Country,
+	// Convertir filtros - CORREGIDO: usar punteros porque el DTO espera *string
+	filter := eventdto.EventFilter{
+		Search:     req.Name,
+		Status:     &req.Status,   // ✅ convertir string a *string
+		DateFrom:   &req.DateFrom, // ✅ convertir string a *string
+		DateTo:     &req.DateTo,   // ✅ convertir string a *string
+		City:       &req.City,     // ✅ convertir string a *string
+		Country:    &req.Country,  // ✅ convertir string a *string
 		IsFeatured: &req.IsFeatured,
 		IsFree:     &req.IsFree,
-		Search:     req.Search,
 	}
 
-	organizerId := req.GetOrganizerId()
-	if organizerId != "" {
-		// Nota: Necesitarías convertir organizer_id a int64
+	// Procesar organizer_id si viene (como string, no puntero)
+	if req.OrganizerId != "" {
+		filter.OrganizerID = &req.OrganizerId
 	}
 
+	// Procesar category_id si viene
 	if req.CategoryId != "" {
-		// Nota: Necesitarías convertir category_id a int64
+		filter.CategoryID = &req.CategoryId
 	}
 
 	// Paginación
-	pagination := dto.Pagination{
+	pagination := commondto.Pagination{
 		Page:     int(req.Page),
 		PageSize: int(req.PageSize),
 	}
@@ -210,34 +221,33 @@ func (h *EventHandler) UpdateEvent(ctx context.Context, req *osmi.UpdateEventReq
 	}
 
 	// Convertir protobuf a DTO
-	updateReq := &dto.UpdateEventRequest{
+	updateReq := &eventdto.UpdateEventRequest{
 		Name:             req.Name,
 		Description:      req.Description,
 		ShortDescription: req.ShortDescription,
 		Status:           req.Status,
 		Visibility:       req.Visibility,
 		IsFeatured:       req.IsFeatured,
-		IsPublished:      req.IsPublished,
 	}
 
-	// Parsear fechas si vienen
+	// CORREGIDO: fechas - req.StartDate y req.EndDate son *string
+	// Validar con != nil, no con != ""
 	if req.StartDate != nil {
-		startsAt, err := time.Parse(time.RFC3339, *req.StartDate)
-		if err == nil {
-			updateReq.StartsAt = &startsAt
-		}
+		updateReq.StartsAt = req.StartDate // ✅ asignar *string directamente
 	}
 	if req.EndDate != nil {
-		endsAt, err := time.Parse(time.RFC3339, *req.EndDate)
-		if err == nil {
-			updateReq.EndsAt = &endsAt
-		}
+		updateReq.EndsAt = req.EndDate // ✅ asignar *string directamente
 	}
+
+	// CORREGIDO: conversión de *int32 a *int
 	if req.MaxAttendees != nil {
-		updateReq.MaxAttendees = req.MaxAttendees
+		val := int(*req.MaxAttendees)
+		updateReq.MaxAttendees = &val
 	}
+
 	if req.AgeRestriction != nil {
-		updateReq.AgeRestriction = req.AgeRestriction
+		val := int(*req.AgeRestriction)
+		updateReq.AgeRestriction = &val
 	}
 
 	// Llamar al servicio

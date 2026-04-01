@@ -1,9 +1,11 @@
+// internal/domain/repository/refund_repository.go
 package repository
 
 import (
 	"context"
 
-	"github.com/franciscozamorau/osmi-server/internal/api/dto"
+	commondto "github.com/franciscozamorau/osmi-server/internal/api/dto/common"
+	refunddto "github.com/franciscozamorau/osmi-server/internal/api/dto/refund"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 )
 
@@ -18,13 +20,13 @@ type RefundRepository interface {
 	Delete(ctx context.Context, id int64) error
 
 	// Búsquedas
-	List(ctx context.Context, filter dto.RefundFilter, pagination dto.Pagination) ([]*entities.Refund, int64, error)
+	List(ctx context.Context, filter refunddto.RefundFilter, pagination commondto.Pagination) ([]*entities.Refund, int64, error)
 	FindByOrder(ctx context.Context, orderID int64) ([]*entities.Refund, error)
 	FindByPayment(ctx context.Context, paymentID int64) ([]*entities.Refund, error)
-	FindByCustomer(ctx context.Context, customerID int64, pagination dto.Pagination) ([]*entities.Refund, int64, error)
-	FindByStatus(ctx context.Context, status string, pagination dto.Pagination) ([]*entities.Refund, int64, error)
-	FindByRequester(ctx context.Context, requesterID int64, pagination dto.Pagination) ([]*entities.Refund, int64, error)
-	FindByApprover(ctx context.Context, approverID int64, pagination dto.Pagination) ([]*entities.Refund, int64, error)
+	FindByCustomer(ctx context.Context, customerID int64, pagination commondto.Pagination) ([]*entities.Refund, int64, error)
+	FindByStatus(ctx context.Context, status string, pagination commondto.Pagination) ([]*entities.Refund, int64, error)
+	FindByRequester(ctx context.Context, requesterID int64, pagination commondto.Pagination) ([]*entities.Refund, int64, error)
+	FindByApprover(ctx context.Context, approverID int64, pagination commondto.Pagination) ([]*entities.Refund, int64, error)
 	FindPendingRefunds(ctx context.Context) ([]*entities.Refund, error)
 
 	// Operaciones específicas
@@ -44,9 +46,9 @@ type RefundRepository interface {
 	HasPreviousRefunds(ctx context.Context, orderID int64) (bool, error)
 
 	// Estadísticas
-	GetStats(ctx context.Context, filter dto.RefundFilter) (*dto.RefundStatsResponse, error)
+	GetStats(ctx context.Context, filter refunddto.RefundFilter) (*refunddto.RefundStatsResponse, error)
 	GetRefundRate(ctx context.Context, eventID *int64) (float64, error)
 	GetAverageRefundAmount(ctx context.Context) (float64, error)
-	GetRefundReasons(ctx context.Context, limit int) ([]*dto.RefundReasonStats, error)
-	GetProcessingTimeStats(ctx context.Context) (*dto.ProcessingTimeStats, error)
+	GetRefundReasons(ctx context.Context, limit int) ([]*refunddto.RefundReasonStats, error)
+	GetProcessingTimeStats(ctx context.Context) (*refunddto.ProcessingTimeStats, error)
 }

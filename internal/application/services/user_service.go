@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/franciscozamorau/osmi-server/internal/api/dto/request"
+	userdto "github.com/franciscozamorau/osmi-server/internal/api/dto/user" // ← CAMBIADO
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 	"github.com/franciscozamorau/osmi-server/internal/domain/enums"
 	"github.com/franciscozamorau/osmi-server/internal/domain/repository"
@@ -40,7 +40,7 @@ func NewUserService(
 }
 
 // Register registra un nuevo usuario en el sistema
-func (s *UserService) Register(ctx context.Context, req *request.CreateUserRequest) (*entities.User, error) {
+func (s *UserService) Register(ctx context.Context, req *userdto.CreateUserRequest) (*entities.User, error) {
 	// Validar request
 	if err := s.validateCreateUserRequest(req); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
@@ -121,7 +121,7 @@ func (s *UserService) Register(ctx context.Context, req *request.CreateUserReque
 }
 
 // Login autentica un usuario y crea una sesión
-func (s *UserService) Login(ctx context.Context, req *request.LoginRequest) (*entities.Session, *entities.User, error) {
+func (s *UserService) Login(ctx context.Context, req *userdto.LoginRequest) (*entities.Session, *entities.User, error) {
 	// Validar request
 	if req.Email == "" || req.Password == "" {
 		return nil, nil, errors.New("email and password are required")
@@ -196,7 +196,7 @@ func (s *UserService) GetProfile(ctx context.Context, userID int64) (*entities.U
 }
 
 // UpdateProfile actualiza el perfil de un usuario
-func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req *request.UpdateUserRequest) (*entities.User, error) {
+func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req *userdto.UpdateUserRequest) (*entities.User, error) {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		if errors.Is(err, repository.ErrUserNotFound) {
@@ -248,7 +248,7 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req *requ
 }
 
 // ChangePassword cambia la contraseña de un usuario
-func (s *UserService) ChangePassword(ctx context.Context, userID int64, req *request.ChangePasswordRequest) error {
+func (s *UserService) ChangePassword(ctx context.Context, userID int64, req *userdto.ChangePasswordRequest) error {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		if errors.Is(err, repository.ErrUserNotFound) {
@@ -324,7 +324,7 @@ func (s *UserService) DeleteAccount(ctx context.Context, userID int64) error {
 // ============================================================================
 
 // validateCreateUserRequest valida los datos de registro
-func (s *UserService) validateCreateUserRequest(req *request.CreateUserRequest) error {
+func (s *UserService) validateCreateUserRequest(req *userdto.CreateUserRequest) error {
 	if req.Email == "" {
 		return errors.New("email is required")
 	}

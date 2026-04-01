@@ -3,12 +3,13 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/franciscozamorau/osmi-server/internal/api/dto"
+	commondto "github.com/franciscozamorau/osmi-server/internal/api/dto/common"
+	eventdto "github.com/franciscozamorau/osmi-server/internal/api/dto/event"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 	"github.com/franciscozamorau/osmi-server/internal/domain/enums"
 	"github.com/franciscozamorau/osmi-server/internal/domain/repository"
@@ -40,7 +41,7 @@ func NewEventService(
 }
 
 // CreateEvent crea un nuevo evento
-func (s *EventService) CreateEvent(ctx context.Context, req *dto.CreateEventRequest) (*entities.Event, error) {
+func (s *EventService) CreateEvent(ctx context.Context, req *eventdto.CreateEventRequest) (*entities.Event, error) {
 	// Validar organizador
 	organizer, err := s.organizerRepo.FindByPublicID(ctx, req.OrganizerID)
 	if err != nil {
@@ -67,57 +68,92 @@ func (s *EventService) CreateEvent(ctx context.Context, req *dto.CreateEventRequ
 		primaryCategoryID = &category.ID
 	}
 
-	// Validar fechas
-	if req.EndsAt.Before(req.StartsAt) {
+	// 🔴 CORREGIDO: Parsear fechas de string a time.Time
+	startTime, err := time.Parse(time.RFC3339, req.StartsAt)
+	if err != nil {
+		return nil, fmt.Errorf("invalid start date format: %w", err)
+	}
+
+	endTime, err := time.Parse(time.RFC3339, req.EndsAt)
+	if err != nil {
+		return nil, fmt.Errorf("invalid end date format: %w", err)
+	}
+
+	if endTime.Before(startTime) {
 		return nil, errors.New("end date must be after start date")
 	}
 
-	// Procesar Tags de JSON string a []string
-	var tags *[]string
-	if req.Tags != "" {
-		var tagsSlice []string
-		// Intentar parsear como JSON array
-		if err := json.Unmarshal([]byte(req.Tags), &tagsSlice); err == nil {
-			tags = &tagsSlice
-		} else {
-			// Si no es JSON válido, tratar como un solo tag
-			tagsSlice = []string{req.Tags}
-			tags = &tagsSlice
+	// Parsear DoorsOpenAt (opcional)
+	var doorsOpen *time.Time
+	if req.DoorsOpenAt != "" {
+		t, err := time.Parse(time.RFC3339, req.DoorsOpenAt)
+		if err != nil {
+			return nil, fmt.Errorf("invalid doors_open_at format: %w", err)
 		}
+		doorsOpen = &t
+	}
+
+	// Parsear DoorsCloseAt (opcional)
+	var doorsClose *time.Time
+	if req.DoorsCloseAt != "" {
+		t, err := time.Parse(time.RFC3339, req.DoorsCloseAt)
+		if err != nil {
+			return nil, fmt.Errorf("invalid doors_close_at format: %w", err)
+		}
+		doorsClose = &t
+	}
+
+	// 🔴 CORREGIDO: Procesar Tags - req.Tags es []string, no string
+	var tags *[]string
+	if len(req.Tags) > 0 {
+		tags = &req.Tags
+	}
+
+	// 🔴 CORREGIDO: Convertir int32 opcionales a *int
+	var maxAttendees *int
+	if req.MaxAttendees > 0 {
+		max := int(req.MaxAttendees)
+		maxAttendees = &max
+	}
+
+	var ageRestriction *int
+	if req.AgeRestriction > 0 {
+		age := int(req.AgeRestriction)
+		ageRestriction = &age
 	}
 
 	// Crear evento con conversiones de tipos correctas
 	event := &entities.Event{
 		PublicID:            uuid.New().String(),
 		OrganizerID:         &organizer.ID,
-		PrimaryCategoryID:   primaryCategoryID, //    PrimaryCategoryID: nil,  // ← puntero nil / por si falla
-		VenueID:             venueID,           //	VenueID: nil, // ← puntero nil / por si falla
+		PrimaryCategoryID:   primaryCategoryID,
+		VenueID:             venueID,
 		Name:                req.Name,
 		Slug:                req.Slug,
-		ShortDescription:    &req.ShortDescription,
-		Description:         &req.Description,
-		EventType:           &req.EventType,
-		CoverImageURL:       &req.CoverImageURL,
-		BannerImageURL:      &req.BannerImageURL,
+		ShortDescription:    stringPtr(req.ShortDescription),
+		Description:         stringPtr(req.Description),
+		EventType:           stringPtr(req.EventType),
+		CoverImageURL:       stringPtr(req.CoverImageURL),
+		BannerImageURL:      stringPtr(req.BannerImageURL),
 		GalleryImages:       nil,
 		Timezone:            req.Timezone,
-		StartsAt:            req.StartsAt,
-		EndsAt:              req.EndsAt,
-		DoorsOpenAt:         &req.DoorsOpenAt,
-		DoorsCloseAt:        &req.DoorsCloseAt,
-		VenueName:           &req.VenueName,
-		AddressFull:         &req.AddressFull,
-		City:                &req.City,
-		State:               &req.State,
-		Country:             &req.Country,
+		StartsAt:            startTime,  // ← time.Time
+		EndsAt:              endTime,    // ← time.Time
+		DoorsOpenAt:         doorsOpen,  // ← *time.Time
+		DoorsCloseAt:        doorsClose, // ← *time.Time
+		VenueName:           stringPtr(req.VenueName),
+		AddressFull:         stringPtr(req.AddressFull),
+		City:                stringPtr(req.City),
+		State:               stringPtr(req.State),
+		Country:             stringPtr(req.Country),
 		Status:              string(enums.EventStatusDraft),
 		Visibility:          req.Visibility,
 		IsFeatured:          req.IsFeatured,
 		IsFree:              req.IsFree,
-		MaxAttendees:        intPtrFromInt32(req.MaxAttendees),
+		MaxAttendees:        maxAttendees,
 		MinAttendees:        int(req.MinAttendees),
 		Tags:                tags,
-		AgeRestriction:      intPtrFromInt32(req.AgeRestriction),
+		AgeRestriction:      ageRestriction,
 		RequiresApproval:    req.RequiresApproval,
 		AllowReservations:   req.AllowReservations,
 		ReservationDuration: int(req.ReservationDuration),
@@ -151,7 +187,7 @@ func (s *EventService) CreateEvent(ctx context.Context, req *dto.CreateEventRequ
 }
 
 // UpdateEvent actualiza un evento existente
-func (s *EventService) UpdateEvent(ctx context.Context, eventID string, req *dto.UpdateEventRequest) (*entities.Event, error) {
+func (s *EventService) UpdateEvent(ctx context.Context, eventID string, req *eventdto.UpdateEventRequest) (*entities.Event, error) {
 	event, err := s.eventRepo.GetByPublicID(ctx, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("event not found: %w", err)
@@ -185,16 +221,32 @@ func (s *EventService) UpdateEvent(ctx context.Context, eventID string, req *dto
 		event.IsFeatured = *req.IsFeatured
 	}
 	if req.MaxAttendees != nil {
-		event.MaxAttendees = intPtrFromInt32Ptr(req.MaxAttendees)
+		if *req.MaxAttendees > 0 {
+			max := int(*req.MaxAttendees)
+			event.MaxAttendees = &max
+		} else {
+			event.MaxAttendees = nil
+		}
 	}
 	if req.AgeRestriction != nil {
-		event.AgeRestriction = intPtrFromInt32Ptr(req.AgeRestriction)
+		if *req.AgeRestriction > 0 {
+			age := int(*req.AgeRestriction)
+			event.AgeRestriction = &age
+		} else {
+			event.AgeRestriction = nil
+		}
 	}
 	if req.StartsAt != nil {
-		event.StartsAt = *req.StartsAt
+		t, err := time.Parse(time.RFC3339, *req.StartsAt)
+		if err == nil {
+			event.StartsAt = t
+		}
 	}
 	if req.EndsAt != nil {
-		event.EndsAt = *req.EndsAt
+		t, err := time.Parse(time.RFC3339, *req.EndsAt)
+		if err == nil {
+			event.EndsAt = t
+		}
 	}
 	if req.Timezone != nil {
 		event.Timezone = *req.Timezone
@@ -289,12 +341,12 @@ func (s *EventService) GetEvent(ctx context.Context, eventID string) (*entities.
 }
 
 // ListEvents lista eventos con filtros y paginación
-func (s *EventService) ListEvents(ctx context.Context, filter dto.EventFilter, pagination dto.Pagination) ([]*entities.Event, int64, error) {
+func (s *EventService) ListEvents(ctx context.Context, filter eventdto.EventFilter, pagination commondto.Pagination) ([]*entities.Event, int64, error) {
 	// Convertir filter a map para el repositorio
 	dbFilter := make(map[string]interface{})
 
-	if filter.Name != "" {
-		dbFilter["name"] = filter.Name
+	if filter.Search != "" {
+		dbFilter["search"] = filter.Search
 	}
 	if filter.OrganizerID != nil {
 		dbFilter["organizer_id"] = *filter.OrganizerID
@@ -302,19 +354,19 @@ func (s *EventService) ListEvents(ctx context.Context, filter dto.EventFilter, p
 	if filter.CategoryID != nil {
 		dbFilter["category_id"] = *filter.CategoryID
 	}
-	if filter.Status != "" {
+	if filter.Status != nil {
 		dbFilter["status"] = filter.Status
 	}
-	if filter.DateFrom != "" {
+	if filter.DateFrom != nil {
 		dbFilter["date_from"] = filter.DateFrom
 	}
-	if filter.DateTo != "" {
+	if filter.DateTo != nil {
 		dbFilter["date_to"] = filter.DateTo
 	}
-	if filter.City != "" {
+	if filter.City != nil {
 		dbFilter["city"] = filter.City
 	}
-	if filter.Country != "" {
+	if filter.Country != nil {
 		dbFilter["country"] = filter.Country
 	}
 	if filter.IsFeatured != nil {
@@ -391,22 +443,12 @@ func (s *EventService) GetEventStats(ctx context.Context, eventID string) (*dto.
 // FUNCIONES HELPER PRIVADAS
 // ============================================================================
 
-// intPtrFromInt32 convierte int32 a *int
-func intPtrFromInt32(val int32) *int {
-	if val == 0 {
+// stringPtr convierte string a *string (si está vacía devuelve nil)
+func stringPtr(s string) *string {
+	if s == "" {
 		return nil
 	}
-	result := int(val)
-	return &result
-}
-
-// intPtrFromInt32Ptr convierte *int32 a *int
-func intPtrFromInt32Ptr(val *int32) *int {
-	if val == nil || *val == 0 {
-		return nil
-	}
-	result := int(*val)
-	return &result
+	return &s
 }
 
 // isValidEventStatusTransition valida transiciones de estado de evento

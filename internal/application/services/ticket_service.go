@@ -1,3 +1,4 @@
+// internal/application/services/ticket_service.go
 package services
 
 import (
@@ -6,15 +7,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/franciscozamorau/osmi-server/internal/api/dto"
-	requestdto "github.com/franciscozamorau/osmi-server/internal/api/dto/request"
+	commondto "github.com/franciscozamorau/osmi-server/internal/api/dto/common"
+	ticketdto "github.com/franciscozamorau/osmi-server/internal/api/dto/ticket"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 	"github.com/franciscozamorau/osmi-server/internal/domain/enums"
 	"github.com/franciscozamorau/osmi-server/internal/domain/repository"
 	"github.com/google/uuid"
 )
 
-// TicketService maneja toda la lógica de negocio relacionada con tickets
 type TicketService struct {
 	ticketRepo     repository.TicketRepository
 	ticketTypeRepo repository.TicketTypeRepository
@@ -23,7 +23,6 @@ type TicketService struct {
 	orderRepo      repository.OrderRepository
 }
 
-// NewTicketService crea una nueva instancia del servicio de tickets
 func NewTicketService(
 	ticketRepo repository.TicketRepository,
 	ticketTypeRepo repository.TicketTypeRepository,
@@ -40,19 +39,13 @@ func NewTicketService(
 	}
 }
 
-// ============================================================================
-// MÉTODOS PÚBLICOS
-// ============================================================================
-
 // CreateTicket crea un nuevo ticket vendido
-func (s *TicketService) CreateTicket(ctx context.Context, req *requestdto.CreateTicketRequest) (*entities.Ticket, error) {
-	// Validar tipo de ticket
+func (s *TicketService) CreateTicket(ctx context.Context, req *ticketdto.CreateTicketRequest) (*entities.Ticket, error) {
 	ticketType, err := s.ticketTypeRepo.FindByPublicID(ctx, req.TicketTypeID)
 	if err != nil {
 		return nil, fmt.Errorf("ticket type not found: %w", err)
 	}
 
-	// Validar disponibilidad
 	available, err := s.ticketTypeRepo.CheckAvailability(ctx, ticketType.ID, int(req.Quantity))
 	if err != nil {
 		return nil, fmt.Errorf("error checking availability: %w", err)
@@ -61,28 +54,23 @@ func (s *TicketService) CreateTicket(ctx context.Context, req *requestdto.Create
 		return nil, errors.New("ticket type not available")
 	}
 
-	// Validar cliente
 	customer, err := s.customerRepo.GetByPublicID(ctx, req.CustomerID)
 	if err != nil {
 		return nil, fmt.Errorf("customer not found: %w", err)
 	}
 
-	// Validar evento
 	event, err := s.eventRepo.GetByID(ctx, ticketType.EventID)
 	if err != nil {
 		return nil, fmt.Errorf("event not found: %w", err)
 	}
 
-	// Validar que el evento esté activo para ventas
 	if event.Status != string(enums.EventStatusPublished) && event.Status != string(enums.EventStatusLive) {
 		return nil, errors.New("event is not active for ticket sales")
 	}
 
-	// Calcular precio final con impuestos
 	finalPrice := ticketType.GetFinalPrice()
 	taxAmount := ticketType.BasePrice * ticketType.TaxRate
 
-	// Crear ticket
 	now := time.Now()
 	ticket := &entities.Ticket{
 		PublicID:      uuid.New().String(),
@@ -124,7 +112,7 @@ func (s *TicketService) CreateTicket(ctx context.Context, req *requestdto.Create
 }
 
 // ReserveTicket reserva un ticket
-func (s *TicketService) ReserveTicket(ctx context.Context, req *dto.ReserveTicketRequest) (*entities.Ticket, error) {
+func (s *TicketService) ReserveTicket(ctx context.Context, req *ticketdto.ReserveTicketRequest) (*entities.Ticket, error) {
 	ticketType, err := s.ticketTypeRepo.FindByPublicID(ctx, req.TicketID)
 	if err != nil {
 		return nil, fmt.Errorf("ticket type not found: %w", err)
@@ -141,7 +129,6 @@ func (s *TicketService) ReserveTicket(ctx context.Context, req *dto.ReserveTicke
 	var customerID *int64
 	if req.UserID != "" {
 		// Nota: Necesitarías una forma de obtener customer por userID
-		// Por ahora, lo dejamos nil
 	}
 
 	event, err := s.eventRepo.GetByID(ctx, ticketType.EventID)
@@ -199,7 +186,7 @@ func (s *TicketService) ReserveTicket(ctx context.Context, req *dto.ReserveTicke
 }
 
 // CheckInTicket marca un ticket como usado
-func (s *TicketService) CheckInTicket(ctx context.Context, req *dto.CheckInTicketRequest) (*entities.Ticket, error) {
+func (s *TicketService) CheckInTicket(ctx context.Context, req *ticketdto.CheckInTicketRequest) (*entities.Ticket, error) {
 	ticket, err := s.ticketRepo.GetByPublicID(ctx, req.TicketID)
 	if err != nil {
 		return nil, fmt.Errorf("ticket not found: %w", err)
@@ -245,7 +232,7 @@ func (s *TicketService) CheckInTicket(ctx context.Context, req *dto.CheckInTicke
 }
 
 // TransferTicket transfiere un ticket
-func (s *TicketService) TransferTicket(ctx context.Context, req *dto.TransferTicketRequest) (*entities.Ticket, error) {
+func (s *TicketService) TransferTicket(ctx context.Context, req *ticketdto.TransferTicketRequest) (*entities.Ticket, error) {
 	ticket, err := s.ticketRepo.GetByPublicID(ctx, req.TicketID)
 	if err != nil {
 		return nil, fmt.Errorf("ticket not found: %w", err)
@@ -305,7 +292,7 @@ func (s *TicketService) GetTicketByCode(ctx context.Context, code string) (*enti
 }
 
 // ListTickets lista tickets con filtros y paginación
-func (s *TicketService) ListTickets(ctx context.Context, filter *dto.TicketFilter, pagination dto.Pagination) ([]*entities.Ticket, int64, error) {
+func (s *TicketService) ListTickets(ctx context.Context, filter *ticketdto.TicketFilter, pagination commondto.Pagination) ([]*entities.Ticket, int64, error) {
 	repoFilter := &repository.TicketFilter{
 		Limit:  pagination.PageSize,
 		Offset: (pagination.Page - 1) * pagination.PageSize,
@@ -363,7 +350,7 @@ func (s *TicketService) GetTicketsByEvent(ctx context.Context, eventID string) (
 }
 
 // GetTicketsByCustomer obtiene tickets de un cliente
-func (s *TicketService) GetTicketsByCustomer(ctx context.Context, customerID string, filter *dto.TicketFilter, pagination dto.Pagination) ([]*entities.Ticket, int64, error) {
+func (s *TicketService) GetTicketsByCustomer(ctx context.Context, customerID string, filter *ticketdto.TicketFilter, pagination commondto.Pagination) ([]*entities.Ticket, int64, error) {
 	customer, err := s.customerRepo.GetByPublicID(ctx, customerID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("customer not found: %w", err)
@@ -398,7 +385,7 @@ func (s *TicketService) GetTicketsByCustomer(ctx context.Context, customerID str
 }
 
 // UpdateTicket actualiza información de un ticket
-func (s *TicketService) UpdateTicket(ctx context.Context, ticketID string, req *dto.UpdateTicketRequest) (*entities.Ticket, error) {
+func (s *TicketService) UpdateTicket(ctx context.Context, ticketID string, req *ticketdto.UpdateTicketRequest) (*entities.Ticket, error) {
 	ticket, err := s.ticketRepo.GetByPublicID(ctx, ticketID)
 	if err != nil {
 		return nil, fmt.Errorf("ticket not found: %w", err)
@@ -497,7 +484,7 @@ func (s *TicketService) ValidateTicket(ctx context.Context, code, secretHash str
 }
 
 // GetTicketStats obtiene estadísticas de tickets para un evento
-func (s *TicketService) GetTicketStats(ctx context.Context, eventID string) (*dto.TicketStatsResponse, error) {
+func (s *TicketService) GetTicketStats(ctx context.Context, eventID string) (*ticketdto.TicketStatsResponse, error) {
 	event, err := s.eventRepo.GetByPublicID(ctx, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("event not found: %w", err)
@@ -513,7 +500,7 @@ func (s *TicketService) GetTicketStats(ctx context.Context, eventID string) (*dt
 		checkInRate = float64(stats.CheckedInTickets) / float64(stats.SoldTickets)
 	}
 
-	return &dto.TicketStatsResponse{
+	return &ticketdto.TicketStatsResponse{
 		TotalTickets:     stats.TotalTickets,
 		AvailableTickets: stats.AvailableTickets,
 		SoldTickets:      stats.SoldTickets,
@@ -550,10 +537,6 @@ func (s *TicketService) ReleaseExpiredReservations(ctx context.Context) (int, er
 
 	return count, nil
 }
-
-// ============================================================================
-// MÉTODOS PRIVADOS
-// ============================================================================
 
 // generateTicketCode genera un código único para el ticket
 func (s *TicketService) generateTicketCode(eventID, ticketTypeID int64, attempt int) string {

@@ -1,9 +1,11 @@
+// internal/domain/repository/venue_repository.go
 package repository
 
 import (
 	"context"
 
-	"github.com/franciscozamorau/osmi-server/internal/api/dto"
+	commondto "github.com/franciscozamorau/osmi-server/internal/api/dto/common"
+	venuedto "github.com/franciscozamorau/osmi-server/internal/api/dto/venue"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 )
 
@@ -19,11 +21,11 @@ type VenueRepository interface {
 	SoftDelete(ctx context.Context, publicID string) error
 
 	// Búsquedas
-	List(ctx context.Context, filter dto.VenueFilter, pagination dto.Pagination) ([]*entities.Venue, int64, error)
-	ListByCountry(ctx context.Context, countryCode string, pagination dto.Pagination) ([]*entities.Venue, int64, error)
-	ListByCity(ctx context.Context, country, city string, pagination dto.Pagination) ([]*entities.Venue, int64, error)
-	ListByType(ctx context.Context, venueType string, pagination dto.Pagination) ([]*entities.Venue, int64, error)
-	Search(ctx context.Context, term string, filter dto.VenueFilter, pagination dto.Pagination) ([]*entities.Venue, int64, error)
+	List(ctx context.Context, filter venuedto.VenueFilter, pagination commondto.Pagination) ([]*entities.Venue, int64, error)
+	ListByCountry(ctx context.Context, countryCode string, pagination commondto.Pagination) ([]*entities.Venue, int64, error)
+	ListByCity(ctx context.Context, country, city string, pagination commondto.Pagination) ([]*entities.Venue, int64, error)
+	ListByType(ctx context.Context, venueType string, pagination commondto.Pagination) ([]*entities.Venue, int64, error)
+	Search(ctx context.Context, term string, filter venuedto.VenueFilter, pagination commondto.Pagination) ([]*entities.Venue, int64, error)
 	FindNearby(ctx context.Context, latitude, longitude float64, radiusKm float64, limit int) ([]*entities.Venue, error)
 
 	// Operaciones específicas
@@ -43,7 +45,7 @@ type VenueRepository interface {
 	GetVenuesInBounds(ctx context.Context, minLat, minLon, maxLat, maxLon float64) ([]*entities.Venue, error)
 
 	// Estadísticas
-	GetStats(ctx context.Context, venueID int64) (*dto.VenueStatsResponse, error)
+	GetStats(ctx context.Context, venueID int64) (*venuedto.VenueStatsResponse, error)
 	CountEvents(ctx context.Context, venueID int64) (int64, error)
 	//GetUpcomingEvents(ctx context.Context, venueID int64, limit int) ([]*dto.VenueEvent, error)
 	GetCapacityUtilization(ctx context.Context, venueID int64) (float64, error)

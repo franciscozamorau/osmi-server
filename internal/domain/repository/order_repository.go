@@ -1,9 +1,11 @@
+// internal/domain/repository/order_repository.go
 package repository
 
 import (
 	"context"
 
-	"github.com/franciscozamorau/osmi-server/internal/api/dto"
+	commondto "github.com/franciscozamorau/osmi-server/internal/api/dto/common"
+	orderdto "github.com/franciscozamorau/osmi-server/internal/api/dto/order"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 )
 
@@ -17,13 +19,13 @@ type OrderRepository interface {
 	Delete(ctx context.Context, id int64) error
 
 	// Búsquedas
-	List(ctx context.Context, filter dto.OrderFilter, pagination dto.Pagination) ([]*entities.Order, int64, error)
-	FindByCustomer(ctx context.Context, customerID int64, pagination dto.Pagination) ([]*entities.Order, int64, error)
-	FindByStatus(ctx context.Context, status string, pagination dto.Pagination) ([]*entities.Order, int64, error)
-	FindByEvent(ctx context.Context, eventID int64, pagination dto.Pagination) ([]*entities.Order, int64, error)
-	FindByPaymentProvider(ctx context.Context, providerID int64, pagination dto.Pagination) ([]*entities.Order, int64, error)
+	List(ctx context.Context, filter orderdto.OrderFilter, pagination commondto.Pagination) ([]*entities.Order, int64, error)
+	FindByCustomer(ctx context.Context, customerID int64, pagination commondto.Pagination) ([]*entities.Order, int64, error)
+	FindByStatus(ctx context.Context, status string, pagination commondto.Pagination) ([]*entities.Order, int64, error)
+	FindByEvent(ctx context.Context, eventID int64, pagination commondto.Pagination) ([]*entities.Order, int64, error)
+	FindByPaymentProvider(ctx context.Context, providerID int64, pagination commondto.Pagination) ([]*entities.Order, int64, error)
 	FindExpiredReservations(ctx context.Context) ([]*entities.Order, error)
-	Search(ctx context.Context, term string, filter dto.OrderFilter, pagination dto.Pagination) ([]*entities.Order, int64, error)
+	Search(ctx context.Context, term string, filter orderdto.OrderFilter, pagination commondto.Pagination) ([]*entities.Order, int64, error)
 
 	// Operaciones específicas
 	UpdateStatus(ctx context.Context, orderID int64, status string) error
@@ -32,17 +34,17 @@ type OrderRepository interface {
 	MarkAsRefunded(ctx context.Context, orderID int64, refundID int64) error
 	AddOrderItem(ctx context.Context, orderID int64, item *entities.OrderItem) error
 	UpdateOrderItems(ctx context.Context, orderID int64, items []*entities.OrderItem) error
-	CalculateTotals(ctx context.Context, orderID int64) (*dto.OrderTotals, error)
+	CalculateTotals(ctx context.Context, orderID int64) (*orderdto.OrderTotals, error)
 	ApplyPromotion(ctx context.Context, orderID int64, promotionCode string) error
 	RemovePromotion(ctx context.Context, orderID int64) error
 	GenerateInvoice(ctx context.Context, orderID int64) (string, error)
 	CancelInvoice(ctx context.Context, orderID int64) error
 
 	// Estadísticas
-	GetStats(ctx context.Context, filter dto.OrderFilter) (*dto.OrderStatsResponse, error)
-	GetCustomerOrderStats(ctx context.Context, customerID int64) (*dto.CustomerOrderStats, error)
-	GetEventOrderStats(ctx context.Context, eventID int64) (*dto.EventOrderStats, error)
-	GetDailyRevenue(ctx context.Context, days int) ([]*dto.DailyRevenue, error)
+	GetStats(ctx context.Context, filter orderdto.OrderFilter) (*orderdto.OrderStatsResponse, error)
+	GetCustomerOrderStats(ctx context.Context, customerID int64) (*orderdto.CustomerOrderStats, error)
+	GetEventOrderStats(ctx context.Context, eventID int64) (*orderdto.EventOrderStats, error)
+	GetDailyRevenue(ctx context.Context, days int) ([]*orderdto.DailyRevenue, error)
 	GetAverageOrderValue(ctx context.Context) (float64, error)
 	GetConversionRate(ctx context.Context) (float64, error)
 }

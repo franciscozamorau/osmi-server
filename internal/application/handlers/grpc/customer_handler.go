@@ -5,10 +5,10 @@ import (
 	"context"
 
 	osmi "github.com/franciscozamorau/osmi-protobuf/gen/pb"
-	"github.com/franciscozamorau/osmi-server/internal/api/dto"
+	commondto "github.com/franciscozamorau/osmi-server/internal/api/dto/common"
+	customerdto "github.com/franciscozamorau/osmi-server/internal/api/dto/customer"
 	"github.com/franciscozamorau/osmi-server/internal/api/helpers"
 	"github.com/franciscozamorau/osmi-server/internal/application/services"
-	"github.com/franciscozamorau/osmi-server/internal/domain/repository"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -72,7 +72,7 @@ func (h *CustomerHandler) CreateCustomer(ctx context.Context, req *osmi.CreateCu
 	}, nil
 }
 
-// CORREGIDO: Ahora recibe GetCustomerRequest en lugar de CustomerLookup
+// GetCustomer obtiene un cliente por su ID público
 func (h *CustomerHandler) GetCustomer(ctx context.Context, req *osmi.GetCustomerRequest) (*osmi.CustomerResponse, error) {
 	if req.PublicId == "" {
 		return nil, status.Error(codes.InvalidArgument, "public_id cannot be empty")
@@ -136,8 +136,8 @@ func (h *CustomerHandler) UpdateCustomer(ctx context.Context, req *osmi.UpdateCu
 
 // ListCustomers lista clientes con filtros y paginación
 func (h *CustomerHandler) ListCustomers(ctx context.Context, req *osmi.ListCustomersRequest) (*osmi.CustomerListResponse, error) {
-	// Convertir filtros - CORREGIDO: No incluir IsActive e IsVIP por defecto
-	filter := &dto.CustomerFilter{
+	// Convertir filtros
+	filter := &customerdto.CustomerFilter{
 		Search:          req.Search,
 		Country:         req.Country,
 		CustomerSegment: req.CustomerSegment,
@@ -156,7 +156,7 @@ func (h *CustomerHandler) ListCustomers(ctx context.Context, req *osmi.ListCusto
 	}
 
 	// Paginación
-	pagination := dto.Pagination{
+	pagination := commondto.Pagination{
 		Page:     int(req.Page),
 		PageSize: int(req.PageSize),
 	}
@@ -233,17 +233,4 @@ func (h *CustomerHandler) GetCustomerStats(ctx context.Context, req *osmi.Empty)
 		AvgLifetimeValue:        stats.AvgLifetimeValue,
 		TopCountries:            topCountries,
 	}, nil
-}
-
-// convertCountryStats convierte []repository.CountryStat a []dto.CountryStats
-func convertCountryStats(stats []repository.CountryStat) []dto.CountryStats {
-	result := make([]dto.CountryStats, len(stats))
-	for i, stat := range stats {
-		result[i] = dto.CountryStats{
-			Country: stat.Country,
-			Count:   stat.Count,
-			Revenue: stat.Revenue,
-		}
-	}
-	return result
 }

@@ -1,9 +1,11 @@
+// internal/domain/repository/invoice_repository.go
 package repository
 
 import (
 	"context"
 
-	"github.com/franciscozamorau/osmi-server/internal/api/dto"
+	commondto "github.com/franciscozamorau/osmi-server/internal/api/dto/common"
+	invoicedto "github.com/franciscozamorau/osmi-server/internal/api/dto/invoice"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 )
 
@@ -20,11 +22,11 @@ type InvoiceRepository interface {
 	Void(ctx context.Context, invoiceID int64, reason string) error
 
 	// Búsquedas
-	List(ctx context.Context, filter dto.InvoiceFilter, pagination dto.Pagination) ([]*entities.Invoice, int64, error)
-	FindByCustomer(ctx context.Context, customerID int64, pagination dto.Pagination) ([]*entities.Invoice, int64, error)
+	List(ctx context.Context, filter invoicedto.InvoiceFilter, pagination commondto.Pagination) ([]*entities.Invoice, int64, error)
+	FindByCustomer(ctx context.Context, customerID int64, pagination commondto.Pagination) ([]*entities.Invoice, int64, error)
 	FindByOrder(ctx context.Context, orderID int64) (*entities.Invoice, error)
-	FindByStatus(ctx context.Context, status string, pagination dto.Pagination) ([]*entities.Invoice, int64, error)
-	FindByDateRange(ctx context.Context, startDate, endDate string, pagination dto.Pagination) ([]*entities.Invoice, int64, error)
+	FindByStatus(ctx context.Context, status string, pagination commondto.Pagination) ([]*entities.Invoice, int64, error)
+	FindByDateRange(ctx context.Context, startDate, endDate string, pagination commondto.Pagination) ([]*entities.Invoice, int64, error)
 	FindUnpaid(ctx context.Context) ([]*entities.Invoice, error)
 	FindOverdue(ctx context.Context) ([]*entities.Invoice, error)
 
@@ -45,13 +47,13 @@ type InvoiceRepository interface {
 	CreateCreditNote(ctx context.Context, originalInvoiceID int64, reason string, amount float64) (*entities.Invoice, error)
 
 	// Reportes
-	GetMonthlyReport(ctx context.Context, year, month int) (*dto.MonthlyInvoiceReport, error)
-	GetCustomerInvoiceHistory(ctx context.Context, customerID int64) ([]*dto.InvoiceHistory, error)
-	GetTaxSummary(ctx context.Context, startDate, endDate string) (*dto.TaxSummary, error)
+	GetMonthlyReport(ctx context.Context, year, month int) (*invoicedto.MonthlyInvoiceReport, error)
+	GetCustomerInvoiceHistory(ctx context.Context, customerID int64) ([]*invoicedto.InvoiceHistory, error)
+	GetTaxSummary(ctx context.Context, startDate, endDate string) (*invoicedto.TaxSummary, error)
 
 	// Estadísticas
-	GetStats(ctx context.Context, filter dto.InvoiceFilter) (*dto.InvoiceStatsResponse, error)
-	GetRevenueByPeriod(ctx context.Context, period string) ([]*dto.RevenueByPeriod, error)
+	GetStats(ctx context.Context, filter invoicedto.InvoiceFilter) (*invoicedto.InvoiceStatsResponse, error)
+	GetRevenueByPeriod(ctx context.Context, period string) ([]*invoicedto.RevenueByPeriod, error)
 	GetAverageInvoiceAmount(ctx context.Context) (float64, error)
-	GetPaymentTermsStats(ctx context.Context) (*dto.PaymentTermsStats, error)
+	GetPaymentTermsStats(ctx context.Context) (*invoicedto.PaymentTermsStats, error)
 }

@@ -1,9 +1,11 @@
+// internal/domain/repository/ticket_type_repository.go
 package repository
 
 import (
 	"context"
 
-	"github.com/franciscozamorau/osmi-server/internal/api/dto"
+	commondto "github.com/franciscozamorau/osmi-server/internal/api/dto/common"
+	tickettypedto "github.com/franciscozamorau/osmi-server/internal/api/dto/ticket_type"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 )
 
@@ -19,7 +21,7 @@ type TicketTypeRepository interface {
 	SellTicketsDirect(ctx context.Context, ticketTypeID int64, quantity int) error
 
 	// Búsquedas
-	List(ctx context.Context, filter dto.TicketTypeFilter, pagination dto.Pagination) ([]*entities.TicketType, int64, error)
+	List(ctx context.Context, filter tickettypedto.TicketTypeFilter, pagination commondto.Pagination) ([]*entities.TicketType, int64, error)
 	FindByEvent(ctx context.Context, eventID int64, activeOnly bool) ([]*entities.TicketType, error)
 	FindByEventPublicID(ctx context.Context, eventPublicID string) ([]*entities.TicketType, error)
 	FindAvailable(ctx context.Context, eventID int64) ([]*entities.TicketType, error)
@@ -39,8 +41,8 @@ type TicketTypeRepository interface {
 	UpdateStatus(ctx context.Context, ticketTypeID int64, active bool) error
 
 	// Estadísticas
-	GetStats(ctx context.Context, ticketTypeID int64) (*dto.TicketTypeStatsResponse, error)
-	GetEventTicketStats(ctx context.Context, eventID int64) (*dto.EventTicketStats, error)
+	GetStats(ctx context.Context, ticketTypeID int64) (*tickettypedto.TicketTypeStatsResponse, error)
+	GetEventTicketStats(ctx context.Context, eventID int64) (*tickettypedto.EventTicketStats, error)
 	CountSold(ctx context.Context, ticketTypeID int64) (int, error)
 	CountReserved(ctx context.Context, ticketTypeID int64) (int, error)
 	GetRevenue(ctx context.Context, ticketTypeID int64) (float64, error)

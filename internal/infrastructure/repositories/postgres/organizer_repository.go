@@ -12,7 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/franciscozamorau/osmi-server/internal/api/dto"
+	commondto "github.com/franciscozamorau/osmi-server/internal/api/dto/common"
+	organizerdto "github.com/franciscozamorau/osmi-server/internal/api/dto/organizer"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 )
 
@@ -41,14 +42,14 @@ func (r *OrganizerRepository) handleError(err error, context string) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
-		case "23505": // Unique violation
+		case "23505":
 			if strings.Contains(pgErr.ConstraintName, "organizers_slug_key") {
 				return fmt.Errorf("organizer slug already exists")
 			}
 			if strings.Contains(pgErr.ConstraintName, "organizers_public_uuid_key") {
 				return fmt.Errorf("organizer public_uuid already exists")
 			}
-		case "23503": // Foreign key violation
+		case "23503":
 			return fmt.Errorf("referenced record not found: %w", err)
 		}
 	}
@@ -57,7 +58,7 @@ func (r *OrganizerRepository) handleError(err error, context string) error {
 }
 
 // ============================================================================
-// CRUD BÁSICO (TODOS ESTOS MÉTODOS ESTÁN CORRECTOS)
+// CRUD BÁSICO
 // ============================================================================
 
 // Create inserta un nuevo organizador
@@ -155,7 +156,6 @@ func (r *OrganizerRepository) FindByID(ctx context.Context, id int64) (*entities
 		return nil, r.handleError(err, "failed to get organizer by ID")
 	}
 
-	// Asignar campos NULL
 	organizer.Description = description
 	organizer.LogoURL = logoURL
 	organizer.LegalName = legalName
@@ -211,7 +211,6 @@ func (r *OrganizerRepository) FindByPublicID(ctx context.Context, publicID strin
 		return nil, r.handleError(err, "failed to get organizer by public ID")
 	}
 
-	// Asignar campos NULL
 	organizer.Description = description
 	organizer.LogoURL = logoURL
 	organizer.LegalName = legalName
@@ -267,7 +266,6 @@ func (r *OrganizerRepository) FindBySlug(ctx context.Context, slug string) (*ent
 		return nil, r.handleError(err, "failed to get organizer by slug")
 	}
 
-	// Asignar campos NULL
 	organizer.Description = description
 	organizer.LogoURL = logoURL
 	organizer.LegalName = legalName
@@ -386,18 +384,24 @@ func (r *OrganizerRepository) Exists(ctx context.Context, id int64) (bool, error
 }
 
 // ============================================================================
-// BÚSQUEDAS (TODOS ESTOS MÉTODOS ESTÁN CORRECTOS)
+// BÚSQUEDAS
 // ============================================================================
 
 // List lista organizadores con filtros
-func (r *OrganizerRepository) List(ctx context.Context, filter dto.OrganizerFilter, pagination dto.Pagination) ([]*entities.Organizer, int64, error) {
+func (r *OrganizerRepository) List(ctx context.Context, filter organizerdto.OrganizerFilter, pagination commondto.Pagination) ([]*entities.Organizer, int64, error) {
 	where := []string{"1=1"}
 	args := pgx.NamedArgs{}
 	argPos := 1
 
-	if filter.Name != "" {
-		where = append(where, fmt.Sprintf("name ILIKE @name_%d", argPos))
-		args[fmt.Sprintf("name_%d", argPos)] = "%" + filter.Name + "%"
+	if filter.Search != "" {
+		searchTerm := "%" + filter.Search + "%"
+		where = append(where, fmt.Sprintf("(name ILIKE @search_%d OR description ILIKE @search_%d)", argPos, argPos))
+		args[fmt.Sprintf("search_%d", argPos)] = searchTerm
+		argPos++
+	}
+	if filter.Country != "" {
+		where = append(where, fmt.Sprintf("country = @country_%d", argPos))
+		args[fmt.Sprintf("country_%d", argPos)] = filter.Country
 		argPos++
 	}
 	if filter.IsVerified != nil {
@@ -413,27 +417,6 @@ func (r *OrganizerRepository) List(ctx context.Context, filter dto.OrganizerFilt
 	if filter.VerificationStatus != "" {
 		where = append(where, fmt.Sprintf("verification_status = @status_%d", argPos))
 		args[fmt.Sprintf("status_%d", argPos)] = filter.VerificationStatus
-		argPos++
-	}
-	if filter.Country != "" {
-		where = append(where, fmt.Sprintf("country = @country_%d", argPos))
-		args[fmt.Sprintf("country_%d", argPos)] = filter.Country
-		argPos++
-	}
-	if filter.Search != "" {
-		searchTerm := "%" + filter.Search + "%"
-		where = append(where, fmt.Sprintf("(name ILIKE @search_%d OR description ILIKE @search_%d)", argPos, argPos))
-		args[fmt.Sprintf("search_%d", argPos)] = searchTerm
-		argPos++
-	}
-	if filter.DateFrom != "" {
-		where = append(where, fmt.Sprintf("created_at >= @from_%d", argPos))
-		args[fmt.Sprintf("from_%d", argPos)] = filter.DateFrom
-		argPos++
-	}
-	if filter.DateTo != "" {
-		where = append(where, fmt.Sprintf("created_at <= @to_%d", argPos))
-		args[fmt.Sprintf("to_%d", argPos)] = filter.DateTo
 		argPos++
 	}
 
@@ -494,7 +477,6 @@ func (r *OrganizerRepository) List(ctx context.Context, filter dto.OrganizerFilt
 			return nil, 0, r.handleError(err, "failed to scan organizer")
 		}
 
-		// Asignar campos NULL
 		org.Description = description
 		org.LogoURL = logoURL
 		org.LegalName = legalName
@@ -519,10 +501,10 @@ func (r *OrganizerRepository) List(ctx context.Context, filter dto.OrganizerFilt
 // ListVerified lista organizadores verificados
 func (r *OrganizerRepository) ListVerified(ctx context.Context, limit int) ([]*entities.Organizer, error) {
 	verified := true
-	filter := dto.OrganizerFilter{
+	filter := organizerdto.OrganizerFilter{
 		IsVerified: &verified,
 	}
-	pagination := dto.Pagination{
+	pagination := commondto.Pagination{
 		Page:     1,
 		PageSize: limit,
 	}
@@ -533,10 +515,10 @@ func (r *OrganizerRepository) ListVerified(ctx context.Context, limit int) ([]*e
 // ListActive lista organizadores activos
 func (r *OrganizerRepository) ListActive(ctx context.Context) ([]*entities.Organizer, error) {
 	active := true
-	filter := dto.OrganizerFilter{
+	filter := organizerdto.OrganizerFilter{
 		IsActive: &active,
 	}
-	pagination := dto.Pagination{
+	pagination := commondto.Pagination{
 		Page:     1,
 		PageSize: 100,
 	}
@@ -546,10 +528,10 @@ func (r *OrganizerRepository) ListActive(ctx context.Context) ([]*entities.Organ
 
 // Search busca organizadores por término
 func (r *OrganizerRepository) Search(ctx context.Context, term string, limit int) ([]*entities.Organizer, error) {
-	filter := dto.OrganizerFilter{
+	filter := organizerdto.OrganizerFilter{
 		Search: term,
 	}
-	pagination := dto.Pagination{
+	pagination := commondto.Pagination{
 		Page:     1,
 		PageSize: limit,
 	}
@@ -558,15 +540,15 @@ func (r *OrganizerRepository) Search(ctx context.Context, term string, limit int
 }
 
 // FindByCountry busca organizadores por país
-func (r *OrganizerRepository) FindByCountry(ctx context.Context, countryCode string, pagination dto.Pagination) ([]*entities.Organizer, int64, error) {
-	filter := dto.OrganizerFilter{
+func (r *OrganizerRepository) FindByCountry(ctx context.Context, countryCode string, pagination commondto.Pagination) ([]*entities.Organizer, int64, error) {
+	filter := organizerdto.OrganizerFilter{
 		Country: countryCode,
 	}
 	return r.List(ctx, filter, pagination)
 }
 
 // ============================================================================
-// OPERACIONES ESPECÍFICAS (TODOS ESTOS MÉTODOS ESTÁN CORRECTOS)
+// OPERACIONES ESPECÍFICAS
 // ============================================================================
 
 // UpdateVerification actualiza estado de verificación
@@ -671,7 +653,6 @@ func (r *OrganizerRepository) UpdateSocialLinks(ctx context.Context, organizerID
 
 // AddSocialLink agrega una red social
 func (r *OrganizerRepository) AddSocialLink(ctx context.Context, organizerID int64, platform, url string) error {
-	// Obtener social links actuales
 	var socialLinksJSON []byte
 	err := r.db.QueryRow(ctx, `SELECT social_links FROM ticketing.organizers WHERE id = $1`, organizerID).Scan(&socialLinksJSON)
 	if err != nil {
@@ -692,7 +673,6 @@ func (r *OrganizerRepository) AddSocialLink(ctx context.Context, organizerID int
 
 // RemoveSocialLink elimina una red social
 func (r *OrganizerRepository) RemoveSocialLink(ctx context.Context, organizerID int64, platform string) error {
-	// Obtener social links actuales
 	var socialLinksJSON []byte
 	err := r.db.QueryRow(ctx, `SELECT social_links FROM ticketing.organizers WHERE id = $1`, organizerID).Scan(&socialLinksJSON)
 	if err != nil {
@@ -741,7 +721,7 @@ func (r *OrganizerRepository) DecrementEventCount(ctx context.Context, organizer
 }
 
 // ============================================================================
-// VERIFICACIONES (TODOS ESTOS MÉTODOS ESTÁN CORRECTOS)
+// VERIFICACIONES
 // ============================================================================
 
 // IsVerified verifica si un organizador está verificado
@@ -773,8 +753,6 @@ func (r *OrganizerRepository) HasEvents(ctx context.Context, organizerID int64) 
 	}
 	return exists, nil
 }
-
-// internal/infrastructure/repositories/postgres/organizer_repository.go
 
 // ============================================================================
 // ESTADÍSTICAS
@@ -815,7 +793,3 @@ func (r *OrganizerRepository) GetAverageRating(ctx context.Context, organizerID 
 	}
 	return rating, nil
 }
-
-// GetStats está comentada porque OrganizerStats no tiene los campos necesarios
-// Si se necesita en el futuro, crear un DTO específico
-// func (r *OrganizerRepository) GetStats(ctx context.Context, organizerID int64) (*dto.OrganizerStats, error) { ... }

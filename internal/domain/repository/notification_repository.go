@@ -1,9 +1,11 @@
+// internal/domain/repository/notification_repository.go
 package repository
 
 import (
 	"context"
 
-	"github.com/franciscozamorau/osmi-server/internal/api/dto"
+	commondto "github.com/franciscozamorau/osmi-server/internal/api/dto/common"
+	notificationdto "github.com/franciscozamorau/osmi-server/internal/api/dto/notification"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 )
 
@@ -16,11 +18,11 @@ type NotificationRepository interface {
 	Delete(ctx context.Context, id int64) error
 
 	// Búsquedas
-	List(ctx context.Context, filter dto.NotificationFilter, pagination dto.Pagination) ([]*entities.Notification, int64, error)
-	FindByRecipient(ctx context.Context, recipientType, recipientID string, pagination dto.Pagination) ([]*entities.Notification, int64, error)
-	FindByTemplate(ctx context.Context, templateID int64, pagination dto.Pagination) ([]*entities.Notification, int64, error)
-	FindByStatus(ctx context.Context, status string, pagination dto.Pagination) ([]*entities.Notification, int64, error)
-	FindByChannel(ctx context.Context, channel string, pagination dto.Pagination) ([]*entities.Notification, int64, error)
+	List(ctx context.Context, filter notificationdto.NotificationFilter, pagination commondto.Pagination) ([]*entities.Notification, int64, error)
+	FindByRecipient(ctx context.Context, recipientType, recipientID string, pagination commondto.Pagination) ([]*entities.Notification, int64, error)
+	FindByTemplate(ctx context.Context, templateID int64, pagination commondto.Pagination) ([]*entities.Notification, int64, error)
+	FindByStatus(ctx context.Context, status string, pagination commondto.Pagination) ([]*entities.Notification, int64, error)
+	FindByChannel(ctx context.Context, channel string, pagination commondto.Pagination) ([]*entities.Notification, int64, error)
 	FindScheduled(ctx context.Context) ([]*entities.Notification, error)
 	FindFailed(ctx context.Context, maxAttempts int) ([]*entities.Notification, error)
 	FindRetryable(ctx context.Context) ([]*entities.Notification, error)
@@ -46,10 +48,10 @@ type NotificationRepository interface {
 	CleanFailedNotifications(ctx context.Context, maxAgeDays int) (int64, error)
 
 	// Estadísticas
-	GetStats(ctx context.Context, filter dto.NotificationFilter) (*dto.NotificationStatsResponse, error)
+	GetStats(ctx context.Context, filter notificationdto.NotificationFilter) (*notificationdto.NotificationStatsResponse, error)
 	GetDeliveryRate(ctx context.Context, channel string, period string) (float64, error)
 	GetOpenRate(ctx context.Context, channel string, period string) (float64, error)
 	GetClickRate(ctx context.Context, channel string, period string) (float64, error)
 	GetAverageDeliveryTime(ctx context.Context, channel string) (float64, error)
-	GetFailureReasons(ctx context.Context, period string) ([]*dto.FailureReasonStats, error)
+	GetFailureReasons(ctx context.Context, period string) ([]*notificationdto.FailureReasonStats, error)
 }

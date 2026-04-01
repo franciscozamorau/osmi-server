@@ -13,7 +13,9 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/franciscozamorau/osmi-server/internal/api/dto"
+	commondto "github.com/franciscozamorau/osmi-server/internal/api/dto/common"
+	venuedto "github.com/franciscozamorau/osmi-server/internal/api/dto/venue"
+
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 )
 
@@ -407,34 +409,37 @@ func (r *VenueRepository) Exists(ctx context.Context, id int64) (bool, error) {
 // ============================================================================
 
 // List lista venues con filtros
-func (r *VenueRepository) List(ctx context.Context, filter dto.VenueFilter, pagination dto.Pagination) ([]*entities.Venue, int64, error) {
+func (r *VenueRepository) List(ctx context.Context, filter venuedto.VenueFilter, pagination commondto.Pagination) ([]*entities.Venue, int64, error) {
 	where := []string{"1=1"}
 	args := pgx.NamedArgs{}
 	argPos := 1
 
-	if filter.Name != "" {
+	if filter.Name != nil {
 		where = append(where, fmt.Sprintf("name ILIKE @name_%d", argPos))
-		args[fmt.Sprintf("name_%d", argPos)] = "%" + filter.Name + "%"
+		args[fmt.Sprintf("name_%d", argPos)] = "%" + *filter.Name + "%"
 		argPos++
 	}
-	if filter.City != "" {
+	if filter.City != nil {
 		where = append(where, fmt.Sprintf("city ILIKE @city_%d", argPos))
-		args[fmt.Sprintf("city_%d", argPos)] = "%" + filter.City + "%"
+		args[fmt.Sprintf("city_%d", argPos)] = "%" + *filter.City + "%"
 		argPos++
 	}
-	if filter.State != "" {
+
+	if filter.State != nil {
 		where = append(where, fmt.Sprintf("state ILIKE @state_%d", argPos))
-		args[fmt.Sprintf("state_%d", argPos)] = "%" + filter.State + "%"
+		args[fmt.Sprintf("state_%d", argPos)] = "%" + *filter.State + "%"
 		argPos++
 	}
-	if filter.Country != "" {
+
+	if filter.Country != nil {
 		where = append(where, fmt.Sprintf("country = @country_%d", argPos))
-		args[fmt.Sprintf("country_%d", argPos)] = filter.Country
+		args[fmt.Sprintf("country_%d", argPos)] = *filter.Country
 		argPos++
 	}
-	if filter.VenueType != "" {
+
+	if filter.VenueType != nil {
 		where = append(where, fmt.Sprintf("venue_type = @type_%d", argPos))
-		args[fmt.Sprintf("type_%d", argPos)] = filter.VenueType
+		args[fmt.Sprintf("type_%d", argPos)] = *filter.VenueType
 		argPos++
 	}
 	if filter.IsActive != nil {
@@ -534,32 +539,33 @@ func (r *VenueRepository) List(ctx context.Context, filter dto.VenueFilter, pagi
 }
 
 // ListByCountry lista venues por país
-func (r *VenueRepository) ListByCountry(ctx context.Context, countryCode string, pagination dto.Pagination) ([]*entities.Venue, int64, error) {
-	filter := dto.VenueFilter{
-		Country: countryCode,
+func (r *VenueRepository) ListByCountry(ctx context.Context, countryCode string, pagination commondto.Pagination) ([]*entities.Venue, int64, error) {
+	filter := venuedto.VenueFilter{
+		Country: &countryCode,
 	}
 	return r.List(ctx, filter, pagination)
 }
 
 // ListByCity lista venues por ciudad
-func (r *VenueRepository) ListByCity(ctx context.Context, country, city string, pagination dto.Pagination) ([]*entities.Venue, int64, error) {
-	filter := dto.VenueFilter{
-		Country: country,
-		City:    city,
+func (r *VenueRepository) ListByCity(ctx context.Context, country, city string, pagination commondto.Pagination) ([]*entities.Venue, int64, error) {
+	filter := venuedto.VenueFilter{
+		Country: &country,
+		City:    &city,
+		//VenueType: &venueType,
 	}
 	return r.List(ctx, filter, pagination)
 }
 
 // ListByType lista venues por tipo
-func (r *VenueRepository) ListByType(ctx context.Context, venueType string, pagination dto.Pagination) ([]*entities.Venue, int64, error) {
-	filter := dto.VenueFilter{
-		VenueType: venueType,
+func (r *VenueRepository) ListByType(ctx context.Context, venueType string, pagination commondto.Pagination) ([]*entities.Venue, int64, error) {
+	filter := venuedto.VenueFilter{
+		VenueType: &venueType,
 	}
 	return r.List(ctx, filter, pagination)
 }
 
 // Search busca venues por término
-func (r *VenueRepository) Search(ctx context.Context, term string, filter dto.VenueFilter, pagination dto.Pagination) ([]*entities.Venue, int64, error) {
+func (r *VenueRepository) Search(ctx context.Context, term string, filter venuedto.VenueFilter, pagination commondto.Pagination) ([]*entities.Venue, int64, error) {
 	filter.Search = term
 	return r.List(ctx, filter, pagination)
 }
@@ -843,7 +849,7 @@ func (r *VenueRepository) GetDistance(ctx context.Context, venueID int64, latitu
 // ============================================================================
 
 // GetStats obtiene estadísticas de un venue
-func (r *VenueRepository) GetStats(ctx context.Context, venueID int64) (*dto.VenueStatsResponse, error) {
+func (r *VenueRepository) GetStats(ctx context.Context, venueID int64) (*venuedto.VenueStatsResponse, error) {
 	// Contar eventos en este venue
 	var eventCount int64
 	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM ticketing.events WHERE venue_id = $1`, venueID).Scan(&eventCount)
@@ -862,12 +868,16 @@ func (r *VenueRepository) GetStats(ctx context.Context, venueID int64) (*dto.Ven
 		return nil, r.handleError(err, "failed to calculate avg capacity")
 	}
 
-	stats := &dto.VenueStatsResponse{
-		TotalEvents:      eventCount,
-		AvgCapacity:      avgCapacity,
-		ActiveVenues:     1,
+	stats := &venuedto.VenueStatsResponse{
 		TotalVenues:      1,
-		TotalTicketsSold: 0,
+		ActiveVenues:     1,
+		VerifiedVenues:   0,
+		TotalCapacity:    0,
+		AvgCapacity:      avgCapacity,
+		VenuesWithEvents: int(eventCount),
+		TopCities:        []venuedto.VenueCityStats{},
+		VenueTypes:       []venuedto.VenueTypeStats{},
+		GrowthRate:       0,
 	}
 
 	return stats, nil

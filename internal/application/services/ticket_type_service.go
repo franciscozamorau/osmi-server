@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/franciscozamorau/osmi-server/internal/api/dto"
-	"github.com/franciscozamorau/osmi-server/internal/api/dto/request"
+	commondto "github.com/franciscozamorau/osmi-server/internal/api/dto/common"
+	tickettypedto "github.com/franciscozamorau/osmi-server/internal/api/dto/ticket_type"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 	"github.com/franciscozamorau/osmi-server/internal/domain/repository"
 	"github.com/google/uuid"
@@ -31,24 +31,20 @@ func NewTicketTypeService(
 }
 
 // CreateTicketType crea un nuevo tipo de ticket
-func (s *TicketTypeService) CreateTicketType(ctx context.Context, req *request.CreateTicketTypeRequest) (*entities.TicketType, error) {
-	// Validar request
+func (s *TicketTypeService) CreateTicketType(ctx context.Context, req *tickettypedto.CreateTicketTypeRequest) (*entities.TicketType, error) {
 	if err := s.validateCreateRequest(req); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 
-	// Validar evento
 	event, err := s.eventRepo.GetByPublicID(ctx, req.EventID)
 	if err != nil {
 		return nil, fmt.Errorf("event not found: %w", err)
 	}
 
-	// Validar que el evento permita nuevos tipos de ticket
 	if event.Status != "draft" && event.Status != "published" {
 		return nil, errors.New("cannot add ticket types to this event")
 	}
 
-	// Parsear fechas
 	saleStartsAt, err := s.parseTime(req.SaleStartsAt)
 	if err != nil {
 		return nil, fmt.Errorf("invalid sale start date: %w", err)
@@ -63,23 +59,17 @@ func (s *TicketTypeService) CreateTicketType(ctx context.Context, req *request.C
 		saleEndsAt = endsAt
 	}
 
-	// Validar que saleEndsAt sea después de saleStartsAt
 	if saleEndsAt != nil && saleEndsAt.Before(*saleStartsAt) {
 		return nil, errors.New("sale end date must be after sale start date")
 	}
 
-	// Validar que maxPerOrder sea mayor o igual que minPerOrder
 	if req.MaxPerOrder < req.MinPerOrder {
 		return nil, errors.New("max per order must be greater or equal than min per order")
 	}
 
-	// Procesar beneficios (ahora como []string)
 	benefits := s.parseBenefits(req.Benefits)
-
-	// Procesar reglas de validación
 	validationRules := s.parseValidationRules(req.ValidationRules)
 
-	// Crear tipo de ticket
 	now := time.Now()
 	ticketType := &entities.TicketType{
 		PublicID:          uuid.New().String(),
@@ -120,21 +110,18 @@ func (s *TicketTypeService) CreateTicketType(ctx context.Context, req *request.C
 }
 
 // UpdateTicketType actualiza un tipo de ticket existente
-func (s *TicketTypeService) UpdateTicketType(ctx context.Context, ticketTypeID string, req *request.UpdateTicketTypeRequest) (*entities.TicketType, error) {
-	// Obtener el tipo de ticket
+func (s *TicketTypeService) UpdateTicketType(ctx context.Context, ticketTypeID string, req *tickettypedto.UpdateTicketTypeRequest) (*entities.TicketType, error) {
 	ticketType, err := s.ticketTypeRepo.FindByPublicID(ctx, ticketTypeID)
 	if err != nil {
 		return nil, fmt.Errorf("ticket type not found: %w", err)
 	}
 
-	// Validar que se pueda modificar
 	if ticketType.SoldQuantity > 0 {
 		if err := s.validateUpdateWithSoldTickets(ticketType, req); err != nil {
 			return nil, err
 		}
 	}
 
-	// Actualizar campos
 	if req.Name != nil {
 		ticketType.Name = *req.Name
 	}
@@ -200,13 +187,12 @@ func (s *TicketTypeService) GetTicketType(ctx context.Context, ticketTypeID stri
 }
 
 // ListTicketTypes lista tipos de ticket con filtros y paginación
-func (s *TicketTypeService) ListTicketTypes(ctx context.Context, filter *dto.TicketTypeFilter, page, pageSize int) ([]*entities.TicketType, int64, error) {
+func (s *TicketTypeService) ListTicketTypes(ctx context.Context, filter *tickettypedto.TicketTypeFilter, page, pageSize int) ([]*entities.TicketType, int64, error) {
 	if filter == nil {
-		filter = &dto.TicketTypeFilter{}
+		filter = &tickettypedto.TicketTypeFilter{}
 	}
 
-	// Configurar paginación
-	pagination := dto.Pagination{
+	pagination := commondto.Pagination{
 		Page:     page,
 		PageSize: pageSize,
 	}
@@ -227,7 +213,6 @@ func (s *TicketTypeService) ListTicketTypes(ctx context.Context, filter *dto.Tic
 
 // GetTicketTypesByEvent obtiene todos los tipos de ticket de un evento
 func (s *TicketTypeService) GetTicketTypesByEvent(ctx context.Context, eventID string) ([]*entities.TicketType, error) {
-	// Validar que el evento existe
 	_, err := s.eventRepo.GetByPublicID(ctx, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("event not found: %w", err)
@@ -248,12 +233,10 @@ func (s *TicketTypeService) CheckAvailability(ctx context.Context, ticketTypeID 
 		return false, fmt.Errorf("ticket type not found: %w", err)
 	}
 
-	// Validar cantidad
 	if err := ticketType.ValidateOrderQuantity(quantity); err != nil {
 		return false, err
 	}
 
-	// Usar método del repositorio
 	available, err := s.ticketTypeRepo.CheckAvailability(ctx, ticketType.ID, quantity)
 	if err != nil {
 		return false, fmt.Errorf("failed to check availability: %w", err)
@@ -264,13 +247,11 @@ func (s *TicketTypeService) CheckAvailability(ctx context.Context, ticketTypeID 
 
 // ToggleActive activa o desactiva un tipo de ticket
 func (s *TicketTypeService) ToggleActive(ctx context.Context, ticketTypeID string, active bool) error {
-	// Obtener el ticket type
 	ticketType, err := s.ticketTypeRepo.FindByPublicID(ctx, ticketTypeID)
 	if err != nil {
 		return fmt.Errorf("ticket type not found: %w", err)
 	}
 
-	// Usar UpdateStatus con el ID numérico
 	if err := s.ticketTypeRepo.UpdateStatus(ctx, ticketType.ID, active); err != nil {
 		return fmt.Errorf("failed to update status: %w", err)
 	}
@@ -282,8 +263,7 @@ func (s *TicketTypeService) ToggleActive(ctx context.Context, ticketTypeID strin
 // FUNCIONES HELPER PRIVADAS
 // ============================================================================
 
-// validateCreateRequest valida los datos de creación
-func (s *TicketTypeService) validateCreateRequest(req *request.CreateTicketTypeRequest) error {
+func (s *TicketTypeService) validateCreateRequest(req *tickettypedto.CreateTicketTypeRequest) error {
 	if req.EventID == "" {
 		return errors.New("event_id is required")
 	}
@@ -302,8 +282,7 @@ func (s *TicketTypeService) validateCreateRequest(req *request.CreateTicketTypeR
 	return nil
 }
 
-// validateUpdateWithSoldTickets valida actualizaciones cuando hay tickets vendidos
-func (s *TicketTypeService) validateUpdateWithSoldTickets(ticketType *entities.TicketType, req *request.UpdateTicketTypeRequest) error {
+func (s *TicketTypeService) validateUpdateWithSoldTickets(ticketType *entities.TicketType, req *tickettypedto.UpdateTicketTypeRequest) error {
 	if req.BasePrice != nil && *req.BasePrice != ticketType.BasePrice {
 		return errors.New("cannot change price when tickets have been sold")
 	}
@@ -313,7 +292,6 @@ func (s *TicketTypeService) validateUpdateWithSoldTickets(ticketType *entities.T
 	return nil
 }
 
-// parseTime parsea una fecha en formato RFC3339
 func (s *TicketTypeService) parseTime(timeStr string) (*time.Time, error) {
 	if timeStr == "" {
 		return nil, errors.New("time string is empty")
@@ -325,33 +303,24 @@ func (s *TicketTypeService) parseTime(timeStr string) (*time.Time, error) {
 	return &t, nil
 }
 
-// parseBenefits convierte string a []string
 func (s *TicketTypeService) parseBenefits(benefitsStr string) []string {
 	if benefitsStr == "" {
 		return []string{}
 	}
-
-	// Intentar parsear como JSON array
 	var benefits []string
 	if err := json.Unmarshal([]byte(benefitsStr), &benefits); err == nil {
 		return benefits
 	}
-
-	// Si no es JSON, tratar como un solo beneficio
 	return []string{benefitsStr}
 }
 
-// parseValidationRules convierte string a ValidationRules
 func (s *TicketTypeService) parseValidationRules(rulesStr string) *entities.ValidationRules {
 	if rulesStr == "" {
 		return nil
 	}
-
-	// Intentar parsear como JSON
 	var rules entities.ValidationRules
 	if err := json.Unmarshal([]byte(rulesStr), &rules); err != nil {
 		return nil
 	}
-
 	return &rules
 }

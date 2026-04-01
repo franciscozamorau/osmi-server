@@ -6,11 +6,10 @@ import (
 	"time"
 
 	osmi "github.com/franciscozamorau/osmi-protobuf/gen/pb"
-	"github.com/franciscozamorau/osmi-server/internal/api/dto"
-	"github.com/franciscozamorau/osmi-server/internal/api/dto/request"
+	tickettypedto "github.com/franciscozamorau/osmi-server/internal/api/dto/ticket_type"
 	"github.com/franciscozamorau/osmi-server/internal/application/services"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
-	"github.com/google/uuid" // ← IMPORT AGREGADO
+	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -29,7 +28,6 @@ func NewTicketTypeHandler(ticketTypeService *services.TicketTypeService) *Ticket
 
 // CreateTicketType maneja la creación de un tipo de ticket
 func (h *TicketTypeHandler) CreateTicketType(ctx context.Context, req *osmi.CreateTicketTypeRequest) (*osmi.TicketTypeResponse, error) {
-	// Validar campos requeridos
 	if req.EventId == "" {
 		return nil, status.Error(codes.InvalidArgument, "event_id is required")
 	}
@@ -43,7 +41,6 @@ func (h *TicketTypeHandler) CreateTicketType(ctx context.Context, req *osmi.Crea
 		return nil, status.Error(codes.InvalidArgument, "total_quantity must be greater than 0")
 	}
 
-	// Convertir timestamps
 	saleStartsAt := req.SaleStartsAt.AsTime()
 	var saleEndsAt *time.Time
 	if req.SaleEndsAt != nil {
@@ -51,8 +48,7 @@ func (h *TicketTypeHandler) CreateTicketType(ctx context.Context, req *osmi.Crea
 		saleEndsAt = &t
 	}
 
-	// CORREGIDO: Convertir int32 a int explícitamente
-	createReq := &request.CreateTicketTypeRequest{
+	createReq := &tickettypedto.CreateTicketTypeRequest{
 		EventID:          req.EventId,
 		Name:             req.Name,
 		Description:      req.Description,
@@ -62,16 +58,16 @@ func (h *TicketTypeHandler) CreateTicketType(ctx context.Context, req *osmi.Crea
 		TaxRate:          req.TaxRate,
 		ServiceFeeType:   req.ServiceFeeType,
 		ServiceFeeValue:  req.ServiceFeeValue,
-		TotalQuantity:    int(req.TotalQuantity), // ← CORREGIDO
-		MaxPerOrder:      int(req.MaxPerOrder),   // ← CORREGIDO
-		MinPerOrder:      int(req.MinPerOrder),   // ← CORREGIDO
+		TotalQuantity:    int(req.TotalQuantity),
+		MaxPerOrder:      int(req.MaxPerOrder),
+		MinPerOrder:      int(req.MinPerOrder),
 		SaleStartsAt:     saleStartsAt.Format(time.RFC3339),
 		IsActive:         req.IsActive,
 		RequiresApproval: req.RequiresApproval,
 		IsHidden:         req.IsHidden,
 		SalesChannel:     req.SalesChannel,
 		AccessType:       req.AccessType,
-		Benefits:         "", // TODO: Convertir []string a string
+		Benefits:         "",
 		ValidationRules:  req.ValidationRules,
 	}
 
@@ -87,36 +83,30 @@ func (h *TicketTypeHandler) CreateTicketType(ctx context.Context, req *osmi.Crea
 	return h.ticketTypeToProto(ticketType), nil
 }
 
-// GetTicketType obtiene un tipo de ticket por ID - CORREGIDO
+// GetTicketType obtiene un tipo de ticket por ID
 func (h *TicketTypeHandler) GetTicketType(ctx context.Context, req *osmi.GetTicketTypeRequest) (*osmi.TicketTypeResponse, error) {
-	// Validar que el ID no esté vacío
 	if req.Id == "" {
 		return nil, status.Error(codes.InvalidArgument, "ticket type id is required")
 	}
 
-	// Validar que sea un UUID válido
 	if _, err := uuid.Parse(req.Id); err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid ticket type id format")
 	}
 
-	// CORREGIDO: Usar GetTicketType, no GetByPublicID
 	ticketType, err := h.ticketTypeService.GetTicketType(ctx, req.Id)
 	if err != nil {
 		return nil, status.Error(codes.NotFound, "ticket type not found")
 	}
 
-	// CORREGIDO: Usar ticketTypeToProto, no convertToProto
 	return h.ticketTypeToProto(ticketType), nil
 }
 
 // ListTicketTypes lista tipos de ticket con filtros
 func (h *TicketTypeHandler) ListTicketTypes(ctx context.Context, req *osmi.ListTicketTypesRequest) (*osmi.TicketTypeListResponse, error) {
-	// CORREGIDO: Usar el filtro tipado en lugar de map
-	filter := &dto.TicketTypeFilter{}
+	filter := &tickettypedto.TicketTypeFilter{}
 
 	if req.EventId != "" {
 		// Necesitarías convertir el event_id a int64
-		// Por ahora, lo dejamos como string y el servicio lo manejará
 	}
 
 	if req.IsActive {
@@ -163,29 +153,28 @@ func (h *TicketTypeHandler) ticketTypeToProto(tt *entities.TicketType) *osmi.Tic
 		return nil
 	}
 
-	// CORREGIDO: Convertir pq.StringArray a []string
 	benefits := make([]string, len(tt.Benefits))
 	copy(benefits, tt.Benefits)
 
 	resp := &osmi.TicketTypeResponse{
 		Id:                tt.PublicID,
-		EventId:           "", // Necesitarías obtener el public_id del evento
+		EventId:           "",
 		Name:              tt.Name,
 		Description:       safeString(tt.Description),
 		TicketClass:       tt.TicketClass,
 		BasePrice:         tt.BasePrice,
 		Currency:          tt.Currency,
 		TaxRate:           tt.TaxRate,
-		TotalQuantity:     int32(tt.TotalQuantity),     // ← CORREGIDO
-		AvailableQuantity: int32(tt.AvailableQuantity), // ← CORREGIDO
-		SoldQuantity:      int32(tt.SoldQuantity),      // ← CORREGIDO
-		ReservedQuantity:  int32(tt.ReservedQuantity),  // ← CORREGIDO
-		MaxPerOrder:       int32(tt.MaxPerOrder),       // ← CORREGIDO
-		MinPerOrder:       int32(tt.MinPerOrder),       // ← CORREGIDO
+		TotalQuantity:     int32(tt.TotalQuantity),
+		AvailableQuantity: int32(tt.AvailableQuantity),
+		SoldQuantity:      int32(tt.SoldQuantity),
+		ReservedQuantity:  int32(tt.ReservedQuantity),
+		MaxPerOrder:       int32(tt.MaxPerOrder),
+		MinPerOrder:       int32(tt.MinPerOrder),
 		SaleStartsAt:      timestamppb.New(tt.SaleStartsAt),
 		IsActive:          tt.IsActive,
 		IsSoldOut:         tt.IsSoldOut,
-		Benefits:          benefits, // ← AHORA ES []string CORRECTO
+		Benefits:          benefits,
 		CreatedAt:         timestamppb.New(tt.CreatedAt),
 		UpdatedAt:         timestamppb.New(tt.UpdatedAt),
 	}

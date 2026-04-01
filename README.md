@@ -28,47 +28,80 @@ osmi-server/
 ├── internal/                                # Código interno de la aplicación
 │   ├── api/                                 # Capa de presentación (HTTP/gRPC)
 │   │   ├── dto/                             # Data Transfer Objects
-│   │   │   ├── filter/                      # Filtros y paginación
-│   │   │   │   ├── filter.go                # Estructuras para filtrado de datos
-│   │   │   │   └── pagination.go            # Estructuras para paginación de resultados
-│   │   │   ├── request/                     # Request DTOs (entrada)
-│   │   │   │   ├── api_call_request.go      # Solicitudes de llamadas API
-│   │   │   │   ├── audit_request.go         # Solicitudes de auditoría
-│   │   │   │   ├── category_request.go      # Solicitudes de categorías
-│   │   │   │   ├── country_config_request.go # Solicitudes de configuración por país
-│   │   │   │   ├── customer_request.go      # Solicitudes de clientes
-│   │   │   │   ├── event_request.go         # Solicitudes de eventos
-│   │   │   │   ├── invoice_request.go       # Solicitudes de facturas
-│   │   │   │   ├── notification_request.go  # Solicitudes de notificaciones
-│   │   │   │   ├── order_request.go         # Solicitudes de órdenes
-│   │   │   │   ├── organizer_request.go     # Solicitudes de organizadores
-│   │   │   │   ├── payment_request.go       # Solicitudes de pagos
-│   │   │   │   ├── refund_request.go        # Solicitudes de reembolsos
-│   │   │   │   ├── ticket_request.go        # Solicitudes de tickets
-│   │   │   │   ├── ticket_type_request.go   # Solicitudes de tipos de ticket
-│   │   │   │   ├── user_request.go          # Solicitudes de usuarios
-│   │   │   │   ├── venue_request.go         # Solicitudes de lugares/recintos
-│   │   │   │   └── webhook_request.go       # Solicitudes de webhooks
-│   │   │   └── response/                    # Response DTOs (salida)
-│   │   │   │   ├── api_call_response.go     # Respuestas de llamadas API
-│   │   │   │   ├── audit_response.go        # Respuestas de auditoría
-│   │   │   │   ├── category_response.go     # Respuestas de categorías
-│   │   │   │   ├── common_types.go          # Respuestas de common
-│   │   │   │   ├── country_config_response.go # Respuestas de configuración por país
-│   │   │   │   ├── customer_response.go     # Respuestas de clientes
-│   │   │   │   ├── event_response.go        # Respuestas de eventos
-│   │   │   │   ├── invoice_response.go      # Respuestas de facturas
-│   │   │   │   ├── notification_response.go # Respuestas de notificaciones
-│   │   │   │   ├── order_response.go        # Respuestas de órdenes
-│   │   │   │   ├── organizer_response.go    # Respuestas de organizadores
-│   │   │   │   ├── payment_response.go      # Respuestas de pagos
-│   │   │   │   ├── refund_response.go       # Respuestas de reembolsos
-│   │   │   │   ├── ticket_response.go       # Respuestas de tickets
-│   │   │   │   ├── ticket_type_response.go  # Respuestas de tipos de ticket
-│   │   │   │   ├── user_response.go         # Respuestas de usuarios
-│   │   │   │   ├── venue_response.go        # Respuestas de lugares/recintos
-│   │   │   │   └── webhook_response.go      # Respuestas de webhooks
-│   │   │   └── dto.go/                      #
+│   │   │   ├── api_call/                    #     
+│   │   │   │   ├── filter.go                #
+│   │   │   │   ├── request.go               #  
+│   │   │   │   ├── response.go              #
+│   │   │   ├── audit/                       #     
+│   │   │   │   ├── filter.go                #
+│   │   │   │   ├── request.go               #  
+│   │   │   │   ├── response.go           #
+│   │   │   ├── category/                    #     
+│   │   │   │   ├── filter.go             #
+│   │   │   │   ├── request.go         #  
+│   │   │   │   ├── response.go           #
+│   │   │   ├── common/                    #     
+│   │   │   │   ├── geo_location.go            #
+│   │   │   │   ├── health.go         #  
+│   │   │   │   ├── map_bounds.go        #
+│   │   │   │   ├── meta.go         #  
+│   │   │   │   ├── pagination.go      #
+│   │   │   ├── country_config/                    #     
+│   │   │   │   ├── filter.go             #
+│   │   │   │   ├── request.go         #  
+│   │   │   │   ├── response.go           #
+│   │   │   ├── customer/                    #     
+│   │   │   │   ├── filter.go             #
+│   │   │   │   ├── request.go         #  
+│   │   │   │   ├── response.go           #
+│   │   │   ├── event/                    #     
+│   │   │   │   ├── filter.go             #
+│   │   │   │   ├── request.go         #  
+│   │   │   │   ├── response.go           #
+│   │   │   ├── invoice/                    #     
+│   │   │   │   ├── filter.go             #
+│   │   │   │   ├── request.go         #  
+│   │   │   │   ├── response.go           #
+│   │   │   ├── notification/                    #     
+│   │   │   │   ├── filter.go             #
+│   │   │   │   ├── request.go         #  
+│   │   │   │   ├── response.go           #
+│   │   │   ├── order/                    #     
+│   │   │   │   ├── filter.go             #
+│   │   │   │   ├── request.go         #  
+│   │   │   │   ├── response.go           #
+│   │   │   ├── organizer/                    #     
+│   │   │   │   ├── filter.go             #
+│   │   │   │   ├── request.go         #  
+│   │   │   │   ├── response.go           #
+│   │   │   ├── payment/                    #     
+│   │   │   │   ├── filter.go             #
+│   │   │   │   ├── request.go         #  
+│   │   │   │   ├── response.go           #
+│   │   │   ├── refund/                    #     
+│   │   │   │   ├── filter.go             #
+│   │   │   │   ├── request.go         #  
+│   │   │   │   ├── response.go           #
+│   │   │   ├── ticket/                    #     
+│   │   │   │   ├── filter.go             #
+│   │   │   │   ├── request.go         #  
+│   │   │   │   ├── response.go           #
+│   │   │   ├── ticket_type/                    #     
+│   │   │   │   ├── filter.go             #
+│   │   │   │   ├── request.go         #  
+│   │   │   │   ├── response.go           #
+│   │   │   ├── user/                    #     
+│   │   │   │   ├── filter.go             #
+│   │   │   │   ├── request.go         #  
+│   │   │   │   ├── response.go           #
+│   │   │   ├── venue/                    #     
+│   │   │   │   ├── filter.go             #
+│   │   │   │   ├── request.go         #  
+│   │   │   │   ├── response.go           #
+│   │   │   ├── webhook/                    #     
+│   │   │   │   ├── filter.go             #
+│   │   │   │   ├── request.go         #  
+│   │   │   │   ├── response.go           #
 │   │   ├── grpc/                            # Servidor y configuración gRPC
 │   │   │   ├── interceptors/                # Interceptores/middleware gRPC
 │   │   │   │   ├── auth_interceptor.go      # Interceptor de autenticación JWT
@@ -79,12 +112,14 @@ osmi-server/
 │   │   └── helpers/                         #
 │   │   │   └── helpers.go                   # 
 │   ├── application/                         # LÓGICA DE NEGOCIO (usa interfaces)
-│   │   ├── handlers/                       # Manejadores de peticiones
-│   │   │   ├── grpc/                       # Handlers para gRPC
+│   │   ├── handlers/                         # Manejadores de peticiones
+│   │   │   ├── grpc/                         # Handlers para gRPC
+│   │   │   │   ├── category_handler.go        # Handler de categorias (gRPC)
 │   │   │   │   ├── customer_handler.go      # Handler de clientes (gRPC)
 │   │   │   │   ├── event_handler.go         # Handler de eventos (gRPC)
 │   │   │   │   ├── handler.go              # unificado que implementa OsmiServiceServer con todos los métodos.
 │   │   │   │   ├── ticket_handler.go        # Handler de tickets (gRPC)
+│   │   │   │   ├── ticket_type_handler.go      # Handler de tipos de tickets (gRPC)
 │   │   │   │   └── user_handler.go          # Handler de usuarios (gRPC)
 │   │   │   └── http/                       # Handlers para HTTP REST
 │   │   │       ├── event_handler.go         # Handler de eventos (HTTP)
