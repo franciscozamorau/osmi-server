@@ -1,4 +1,3 @@
-// internal/api/dto/category/request.go
 package category
 
 import (
@@ -7,6 +6,8 @@ import (
 
 // CreateCategoryRequest representa la solicitud para crear una categoría
 type CreateCategoryRequest struct {
+	// 🔥 NUEVO CAMPO OBLIGATORIO
+	EventID         string `json:"event_id" validate:"required,uuid"`
 	Name            string `json:"name" validate:"required,min=2,max=100"`
 	Slug            string `json:"slug" validate:"required,slug"`
 	Description     string `json:"description,omitempty" validate:"omitempty,max=1000"`
@@ -51,7 +52,6 @@ type UpdateCategoryRequest struct {
 	MetaDescription *string `json:"meta_description,omitempty" validate:"omitempty,max=500"`
 }
 
-// IsEmpty verifica si no hay campos para actualizar
 func (r *UpdateCategoryRequest) IsEmpty() bool {
 	return r.Name == nil && r.Slug == nil && r.Description == nil &&
 		r.Icon == nil && r.ColorHex == nil && r.ParentID == nil &&
@@ -59,7 +59,6 @@ func (r *UpdateCategoryRequest) IsEmpty() bool {
 		r.MetaTitle == nil && r.MetaDescription == nil
 }
 
-// IsValidSlug valida que el slug tenga el formato correcto
 func IsValidSlug(slug string) bool {
 	if slug == "" {
 		return false

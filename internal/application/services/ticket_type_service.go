@@ -186,6 +186,32 @@ func (s *TicketTypeService) GetTicketType(ctx context.Context, ticketTypeID stri
 	return ticketType, nil
 }
 
+// 🔥 NUEVO MÉTODO - Obtiene el EventID (público) de un ticket type
+func (s *TicketTypeService) GetEventIDByTicketTypeID(ctx context.Context, ticketTypeID string) (string, error) {
+	ticketType, err := s.ticketTypeRepo.FindByPublicID(ctx, ticketTypeID)
+	if err != nil {
+		return "", err
+	}
+	event, err := s.eventRepo.GetByID(ctx, ticketType.EventID)
+	if err != nil {
+		return "", err
+	}
+	return event.PublicID, nil
+}
+
+// 🔥 NUEVO MÉTODO - Obtiene el EventPublicID por ticket type
+func (s *TicketTypeService) GetEventPublicIDByTicketType(ctx context.Context, ticketTypePublicID string) (string, error) {
+	ticketType, err := s.ticketTypeRepo.FindByPublicID(ctx, ticketTypePublicID)
+	if err != nil {
+		return "", err
+	}
+	event, err := s.eventRepo.GetByID(ctx, ticketType.EventID)
+	if err != nil {
+		return "", err
+	}
+	return event.PublicID, nil
+}
+
 // ListTicketTypes lista tipos de ticket con filtros y paginación
 func (s *TicketTypeService) ListTicketTypes(ctx context.Context, filter *tickettypedto.TicketTypeFilter, page, pageSize int) ([]*entities.TicketType, int64, error) {
 	if filter == nil {

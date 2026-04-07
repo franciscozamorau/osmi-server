@@ -31,7 +31,6 @@ func isValidUUID(u string) bool {
 	if u == "" {
 		return false
 	}
-	// UUID v4 pattern
 	pattern := `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`
 	match, _ := regexp.MatchString(pattern, strings.ToLower(u))
 	return match
@@ -42,24 +41,22 @@ func isValidEmail(email string) bool {
 	if email == "" {
 		return false
 	}
-	// Email pattern básico
 	pattern := `^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`
 	match, _ := regexp.MatchString(pattern, email)
 	return match
 }
 
-// isValidPhone valida si un string es un teléfono válido (E.164 o formato básico)
+// isValidPhone valida si un string es un teléfono válido
 func isValidPhone(phone string) bool {
 	if phone == "" {
-		return true // Teléfono opcional
+		return true
 	}
-	// E.164: +1234567890 o formato básico: 1234567890
 	pattern := `^\+?[0-9]{8,15}$`
 	match, _ := regexp.MatchString(pattern, phone)
 	return match
 }
 
-// truncateString trunca un string para logging seguro (evita strings enormes)
+// truncateString trunca un string para logging seguro
 func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
@@ -95,122 +92,6 @@ func NewServer(
 }
 
 // ============================================================================
-// MÉTODOS DE CATEGORÍAS
-// ============================================================================
-
-// CreateCategory implementa el método gRPC para crear categorías
-func (s *Server) CreateCategory(ctx context.Context, req *osmi.CreateCategoryRequest) (*osmi.CategoryResponse, error) {
-	log.Printf("Creating category for event: %s, name: %s", req.EventId, req.Name)
-
-	// Validaciones básicas
-	if strings.TrimSpace(req.EventId) == "" {
-		return nil, fmt.Errorf("event_id is required")
-	}
-	if strings.TrimSpace(req.Name) == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-
-	// Obtener el evento
-	event, err := s.EventRepo.GetByPublicID(ctx, req.EventId)
-	if err != nil {
-		return nil, fmt.Errorf("event not found: %w", err)
-	}
-
-	// Generar slug a partir del nombre
-	slug := strings.ToLower(strings.ReplaceAll(req.Name, " ", "-"))
-
-	// Crear categoría
-	category := &entities.Category{
-		PublicID:         uuid.New().String(),
-		Name:             strings.TrimSpace(req.Name),
-		Slug:             slug,
-		Description:      &req.Description,
-		Icon:             nil,
-		ColorHex:         "#3498db",
-		ParentID:         nil,
-		Level:            1,
-		Path:             "",
-		TotalEvents:      0,
-		TotalTicketsSold: 0,
-		TotalRevenue:     0,
-		IsActive:         req.IsActive,
-		IsFeatured:       false,
-		SortOrder:        0,
-		MetaTitle:        nil,
-		MetaDescription:  nil,
-		CreatedAt:        time.Now(),
-		UpdatedAt:        time.Now(),
-	}
-
-	// Guardar categoría
-	err = s.CategoryRepo.Create(ctx, category)
-	if err != nil {
-		log.Printf("Error creating category: %v", err)
-		return nil, fmt.Errorf("error creating category: %w", err)
-	}
-
-	// Asociar con el evento
-	err = s.CategoryRepo.AddEventToCategory(ctx, event.ID, category.ID, true)
-	if err != nil {
-		log.Printf("Warning: could not associate category with event: %v", err)
-	}
-
-	log.Printf("Category created successfully: %s", category.PublicID)
-
-	// Construir respuesta - CORREGIDO: eliminados campos que ya no existen
-	response := &osmi.CategoryResponse{
-		PublicId:    category.PublicID,
-		EventId:     req.EventId,
-		Name:        category.Name,
-		Description: safeStringPtr(category.Description),
-		IsActive:    category.IsActive,
-		CreatedAt:   timestamppb.New(category.CreatedAt),
-		UpdatedAt:   timestamppb.New(category.UpdatedAt),
-	}
-
-	return response, nil
-}
-
-// GetEventCategories obtiene categorías de un evento
-func (s *Server) GetEventCategories(ctx context.Context, req *osmi.GetEventCategoriesRequest) (*osmi.CategoryListResponse, error) {
-	log.Printf("Getting categories for event: %s", req.PublicId)
-
-	// Obtener el evento
-	event, err := s.EventRepo.GetByPublicID(ctx, req.PublicId)
-	if err != nil {
-		return nil, fmt.Errorf("event not found: %w", err)
-	}
-
-	// Obtener categorías del evento
-	categories, err := s.CategoryRepo.GetEventCategories(ctx, event.ID)
-	if err != nil {
-		log.Printf("Error getting event categories: %v", err)
-		return nil, fmt.Errorf("error retrieving categories: %w", err)
-	}
-
-	// Convertir categorías a protobuf - CORREGIDO
-	pbCategories := make([]*osmi.CategoryResponse, 0, len(categories))
-	for _, category := range categories {
-		catResponse := &osmi.CategoryResponse{
-			PublicId:    category.PublicID,
-			EventId:     req.PublicId,
-			Name:        category.Name,
-			Description: safeStringPtr(category.Description),
-			IsActive:    category.IsActive,
-			CreatedAt:   timestamppb.New(category.CreatedAt),
-			UpdatedAt:   timestamppb.New(category.UpdatedAt),
-		}
-		pbCategories = append(pbCategories, catResponse)
-	}
-
-	return &osmi.CategoryListResponse{
-		Categories:    pbCategories,
-		EventName:     event.Name,
-		EventPublicId: event.PublicID,
-	}, nil
-}
-
-// ============================================================================
 // MÉTODOS DE EVENTOS
 // ============================================================================
 
@@ -218,7 +99,6 @@ func (s *Server) GetEventCategories(ctx context.Context, req *osmi.GetEventCateg
 func (s *Server) CreateEvent(ctx context.Context, req *osmi.CreateEventRequest) (*osmi.EventResponse, error) {
 	log.Printf("Creating event: %s", req.Name)
 
-	// Validaciones básicas
 	if strings.TrimSpace(req.Name) == "" {
 		return nil, fmt.Errorf("event name is required")
 	}
@@ -232,7 +112,6 @@ func (s *Server) CreateEvent(ctx context.Context, req *osmi.CreateEventRequest) 
 		return nil, fmt.Errorf("end_date is required")
 	}
 
-	// Parsear fechas desde string (RFC3339)
 	startsAt, err := time.Parse(time.RFC3339, req.StartDate)
 	if err != nil {
 		return nil, fmt.Errorf("invalid start_date format: %w", err)
@@ -243,22 +122,13 @@ func (s *Server) CreateEvent(ctx context.Context, req *osmi.CreateEventRequest) 
 		return nil, fmt.Errorf("invalid end_date format: %w", err)
 	}
 
-	// Validar lógica de fechas
 	if endsAt.Before(startsAt) {
 		return nil, fmt.Errorf("end_date cannot be before start_date")
 	}
 
-	// Generar UUID para el evento
 	publicID := uuid.New().String()
-
-	// Si se necesitan tags, debere agregarlos al proto primero
-	// Por ahora, lo dejo como nil
-	var tags *[]string = nil
-
-	// 1. Declara la variable con el valor por defecto
 	defaultEventType := "in_person"
 
-	// Crear evento
 	event := &entities.Event{
 		PublicID:         publicID,
 		Name:             strings.TrimSpace(req.Name),
@@ -278,12 +148,11 @@ func (s *Server) CreateEvent(ctx context.Context, req *osmi.CreateEventRequest) 
 		Visibility:       "public",
 		IsFeatured:       false,
 		IsFree:           false,
-		Tags:             tags,
+		Tags:             nil,
 		CreatedAt:        time.Now(),
 		UpdatedAt:        time.Now(),
 	}
 
-	// Manejar campos opcionales
 	if req.CoverImageUrl != "" {
 		event.CoverImageURL = &req.CoverImageUrl
 	}
@@ -295,7 +164,6 @@ func (s *Server) CreateEvent(ctx context.Context, req *osmi.CreateEventRequest) 
 		event.MaxAttendees = &maxAttendees
 	}
 
-	// Crear evento en la base de datos
 	err = s.EventRepo.Create(ctx, event)
 	if err != nil {
 		log.Printf("Error creating event: %v", err)
@@ -304,7 +172,6 @@ func (s *Server) CreateEvent(ctx context.Context, req *osmi.CreateEventRequest) 
 
 	log.Printf("Event created successfully: %s (PublicID: %s)", req.Name, publicID)
 
-	// Obtener el evento creado para la respuesta
 	createdEvent, err := s.EventRepo.GetByPublicID(ctx, publicID)
 	if err != nil {
 		log.Printf("Error retrieving created event: %v", err)
@@ -335,7 +202,6 @@ func (s *Server) GetEvent(ctx context.Context, req *osmi.GetEventRequest) (*osmi
 func (s *Server) ListEvents(ctx context.Context, req *osmi.ListEventsRequest) (*osmi.EventListResponse, error) {
 	log.Println("Listing events with filters")
 
-	// Crear filtro para eventos
 	filter := make(map[string]interface{})
 
 	if req.Name != "" {
@@ -372,7 +238,6 @@ func (s *Server) ListEvents(ctx context.Context, req *osmi.ListEventsRequest) (*
 		filter["is_free"] = true
 	}
 
-	// Paginación
 	limit := int(req.PageSize)
 	if limit <= 0 {
 		limit = 20
@@ -412,7 +277,6 @@ func (s *Server) ListEvents(ctx context.Context, req *osmi.ListEventsRequest) (*
 func (s *Server) CreateCustomer(ctx context.Context, req *osmi.CreateCustomerRequest) (*osmi.CustomerResponse, error) {
 	log.Printf("Creating customer: %s, email: %s", req.Name, req.Email)
 
-	// Validaciones
 	if strings.TrimSpace(req.Name) == "" {
 		return nil, fmt.Errorf("name is required")
 	}
@@ -423,13 +287,11 @@ func (s *Server) CreateCustomer(ctx context.Context, req *osmi.CreateCustomerReq
 		return nil, fmt.Errorf("invalid email format")
 	}
 
-	// Validar formato de teléfono
 	phone := strings.TrimSpace(req.Phone)
 	if phone != "" && !isValidPhone(phone) {
 		return nil, fmt.Errorf("invalid phone format. Use E.164 format: +1234567890 or standard format")
 	}
 
-	// Usar entities.Customer directamente
 	customer := &entities.Customer{
 		PublicID:        uuid.New().String(),
 		FullName:        strings.TrimSpace(req.Name),
@@ -441,11 +303,9 @@ func (s *Server) CreateCustomer(ctx context.Context, req *osmi.CreateCustomerReq
 		UpdatedAt:       time.Now(),
 	}
 
-	// Usar Create
 	err := s.CustomerRepo.Create(ctx, customer)
 	if err != nil {
 		log.Printf("Error creating customer: %v", err)
-
 		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "23505") {
 			return nil, fmt.Errorf("customer with email %s already exists", req.Email)
 		}
@@ -455,7 +315,6 @@ func (s *Server) CreateCustomer(ctx context.Context, req *osmi.CreateCustomerReq
 	log.Printf("Customer created successfully: %s (ID: %d, PublicID: %s)",
 		req.Email, customer.ID, customer.PublicID)
 
-	// Incluir campo Id según el proto
 	return &osmi.CustomerResponse{
 		Id:        int32(customer.ID),
 		PublicId:  customer.PublicID,
@@ -500,7 +359,6 @@ func (s *Server) GetCustomer(ctx context.Context, req *osmi.GetCustomerRequest) 
 func (s *Server) CreateUser(ctx context.Context, req *osmi.CreateUserRequest) (*osmi.UserResponse, error) {
 	log.Printf("Creating user: %s, email: %s", req.Name, req.Email)
 
-	// Validaciones
 	if strings.TrimSpace(req.Name) == "" {
 		return nil, fmt.Errorf("name is required")
 	}
@@ -514,7 +372,6 @@ func (s *Server) CreateUser(ctx context.Context, req *osmi.CreateUserRequest) (*
 		return nil, fmt.Errorf("password is required")
 	}
 
-	// Validar role usando el enum
 	role := strings.TrimSpace(req.Role)
 	if role == "" {
 		role = "customer"
@@ -523,7 +380,6 @@ func (s *Server) CreateUser(ctx context.Context, req *osmi.CreateUserRequest) (*
 		return nil, fmt.Errorf("invalid role. Must be one of: admin, organizer, customer, staff, guest")
 	}
 
-	// Crear entidad User directamente
 	user := &entities.User{
 		PublicID:            uuid.New().String(),
 		Email:               strings.TrimSpace(req.Email),
@@ -597,7 +453,6 @@ func (s *Server) CreateTicket(ctx context.Context, req *osmi.CreateTicketRequest
 		truncateString(req.EventId, 50), truncateString(req.UserId, 50),
 		truncateString(req.TicketTypeId, 50), req.Quantity)
 
-	// Validaciones básicas
 	if strings.TrimSpace(req.EventId) == "" {
 		return nil, fmt.Errorf("event_id is required")
 	}
@@ -611,15 +466,12 @@ func (s *Server) CreateTicket(ctx context.Context, req *osmi.CreateTicketRequest
 		return nil, fmt.Errorf("cannot create more than 10 tickets at once")
 	}
 
-	// TODO: Implementar lógica completa cuando el repositorio esté listo
 	return nil, fmt.Errorf("CreateTicket method is under development")
 }
 
 // ListTickets implementa el método gRPC para listar tickets
 func (s *Server) ListTickets(ctx context.Context, req *osmi.ListTicketsRequest) (*osmi.TicketListResponse, error) {
 	log.Printf("ListTickets called with filters")
-
-	// Por ahora, retornar lista vacía
 	return &osmi.TicketListResponse{
 		Tickets:    []*osmi.TicketResponse{},
 		TotalCount: 0,
@@ -631,8 +483,6 @@ func (s *Server) ListTickets(ctx context.Context, req *osmi.ListTicketsRequest) 
 // GetUserTickets obtiene tickets de un usuario específico
 func (s *Server) GetUserTickets(ctx context.Context, req *osmi.GetUserTicketsRequest) (*osmi.TicketListResponse, error) {
 	log.Printf("GetUserTickets called for user: %s", req.UserId)
-
-	// Por ahora, retornar lista vacía
 	return &osmi.TicketListResponse{
 		Tickets:    []*osmi.TicketResponse{},
 		TotalCount: 0,
@@ -642,8 +492,6 @@ func (s *Server) GetUserTickets(ctx context.Context, req *osmi.GetUserTicketsReq
 // GetCustomerTickets obtiene tickets de un cliente específico
 func (s *Server) GetCustomerTickets(ctx context.Context, req *osmi.GetCustomerTicketsRequest) (*osmi.TicketListResponse, error) {
 	log.Printf("GetCustomerTickets called for customer: %s", req.PublicId)
-
-	// Por ahora, retornar lista vacía
 	return &osmi.TicketListResponse{
 		Tickets:    []*osmi.TicketResponse{},
 		TotalCount: 0,
@@ -653,32 +501,24 @@ func (s *Server) GetCustomerTickets(ctx context.Context, req *osmi.GetCustomerTi
 // UpdateTicketStatus actualiza el estado de un ticket
 func (s *Server) UpdateTicketStatus(ctx context.Context, req *osmi.UpdateTicketStatusRequest) (*osmi.TicketResponse, error) {
 	log.Printf("UpdateTicketStatus called for ticket: %s, status: %s", req.TicketId, req.Status)
-
-	// Por ahora, retornar error
 	return nil, fmt.Errorf("UpdateTicketStatus method temporarily disabled")
 }
 
 // UpdateTicket actualiza información de un ticket
 func (s *Server) UpdateTicket(ctx context.Context, req *osmi.UpdateTicketRequest) (*osmi.TicketResponse, error) {
 	log.Printf("UpdateTicket called for ticket: %s", req.TicketId)
-
-	// Por ahora, retornar error
 	return nil, fmt.Errorf("UpdateTicket method temporarily disabled")
 }
 
 // GetTicketDetails obtiene detalles completos de un ticket
 func (s *Server) GetTicketDetails(ctx context.Context, req *osmi.GetTicketRequest) (*osmi.TicketResponse, error) {
 	log.Printf("GetTicketDetails called for ticket: %s", req.Id)
-
-	// Por ahora, retornar error
 	return nil, fmt.Errorf("GetTicketDetails method temporarily disabled")
 }
 
 // GetTicketStats obtiene estadísticas de tickets para un evento
 func (s *Server) GetTicketStats(ctx context.Context, req *osmi.GetTicketStatsRequest) (*osmi.TicketStatsResponse, error) {
 	log.Printf("GetTicketStats called for event: %s", req.EventId)
-
-	// Por ahora, retornar error
 	return nil, fmt.Errorf("GetTicketStats method temporarily disabled")
 }
 
@@ -718,7 +558,6 @@ func (s *Server) mapEventToResponse(event *entities.Event) *osmi.EventResponse {
 	if event.Tags != nil {
 		response.Tags = *event.Tags
 	}
-
 	if event.Description != nil {
 		response.Description = *event.Description
 	}
@@ -759,5 +598,5 @@ func safeTimePtr(t *time.Time) *timestamppb.Timestamp {
 
 // hashPassword hashea una contraseña (implementación temporal)
 func hashPassword(password string) string {
-	return "$2a$10$" + password // Temporal, debe ser implementado correctamente
+	return "$2a$10$" + password
 }

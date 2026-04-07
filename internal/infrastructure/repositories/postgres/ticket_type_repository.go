@@ -805,8 +805,6 @@ func (r *TicketTypeRepository) UpdateQuantity(ctx context.Context, ticketTypeID 
 	query := `
 		UPDATE ticketing.ticket_types
 		SET total_quantity = $1,
-			available_quantity = $1 - sold_quantity - reserved_quantity,
-			is_sold_out = ($1 - sold_quantity - reserved_quantity) <= 0,
 			updated_at = NOW()
 		WHERE id = $2
 		RETURNING id
@@ -824,8 +822,6 @@ func (r *TicketTypeRepository) ReserveTickets(ctx context.Context, ticketTypeID 
 	query := `
 		UPDATE ticketing.ticket_types
 		SET reserved_quantity = reserved_quantity + $1,
-			available_quantity = total_quantity - sold_quantity - (reserved_quantity + $1),
-			is_sold_out = (total_quantity - sold_quantity - (reserved_quantity + $1)) <= 0,
 			updated_at = NOW()
 		WHERE id = $2 
 		AND (total_quantity - sold_quantity - reserved_quantity) >= $1
@@ -847,8 +843,6 @@ func (r *TicketTypeRepository) ReleaseReservation(ctx context.Context, ticketTyp
 	query := `
 		UPDATE ticketing.ticket_types
 		SET reserved_quantity = GREATEST(0, reserved_quantity - $1),
-			available_quantity = total_quantity - sold_quantity - GREATEST(0, reserved_quantity - $1),
-			is_sold_out = (total_quantity - sold_quantity - GREATEST(0, reserved_quantity - $1)) <= 0,
 			updated_at = NOW()
 		WHERE id = $2 AND reserved_quantity >= $1
 		RETURNING id
@@ -867,13 +861,13 @@ func (r *TicketTypeRepository) ReleaseReservation(ctx context.Context, ticketTyp
 // SellTickets vende tickets (convierte reservas en ventas)
 func (r *TicketTypeRepository) SellTickets(ctx context.Context, ticketTypeID int64, quantity int) error {
 	query := `
-        UPDATE ticketing.ticket_types
-        SET sold_quantity = sold_quantity + $1,
-            reserved_quantity = reserved_quantity - $1,
-            updated_at = NOW()
-        WHERE id = $2 AND reserved_quantity >= $1
-        RETURNING id
-    `
+	    UPDATE ticketing.ticket_types
+    SET reserved_quantity = reserved_quantity + $1,
+        updated_at = NOW()
+    WHERE id = $2 
+    AND (total_quantity - sold_quantity - reserved_quantity) >= $1
+    RETURNING id
+`
 	var id int64
 	err := r.db.QueryRow(ctx, query, quantity, ticketTypeID).Scan(&id)
 	if err != nil {
@@ -1176,6 +1170,27 @@ func (r *TicketTypeRepository) SellTicketsDirect(ctx context.Context, ticketType
 			return fmt.Errorf("not enough tickets available to sell")
 		}
 		return r.handleError(err, "failed to sell tickets directly")
+	}
+	return nil
+}
+
+// ConfirmReservation confirma una reserva (la convierte en venta)
+func (r *TicketTypeRepository) ConfirmReservation(ctx context.Context, ticketTypeID int64, quantity int) error {
+	query := `
+		UPDATE ticketing.ticket_types
+		SET sold_quantity = sold_quantity + $1,
+			reserved_quantity = reserved_quantity - $1,
+			updated_at = NOW()
+		WHERE id = $2 AND reserved_quantity >= $1
+		RETURNING id
+	`
+	var id int64
+	err := r.db.QueryRow(ctx, query, quantity, ticketTypeID).Scan(&id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("not enough reserved tickets to confirm")
+		}
+		return r.handleError(err, "failed to confirm reservation")
 	}
 	return nil
 }

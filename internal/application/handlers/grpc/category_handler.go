@@ -1,9 +1,7 @@
-// internal/application/handlers/grpc/category_handler.go
 package grpc
 
 import (
 	"context"
-	"log"
 	"strings"
 
 	osmi "github.com/franciscozamorau/osmi-protobuf/gen/pb"
@@ -27,11 +25,7 @@ func NewCategoryHandler(categoryService *services.CategoryService) *CategoryHand
 	}
 }
 
-// ============================================================================
-// MÉTODOS QUE SÍ EXISTEN EN EL PROTO
-// ============================================================================
-
-// CreateCategory maneja la creación de una nueva categoría
+// CreateCategory maneja la creación de una nueva categoría para un evento
 func (h *CategoryHandler) CreateCategory(ctx context.Context, req *osmi.CreateCategoryRequest) (*osmi.CategoryResponse, error) {
 	// Validaciones básicas
 	if req.Name == "" {
@@ -41,7 +35,7 @@ func (h *CategoryHandler) CreateCategory(ctx context.Context, req *osmi.CreateCa
 		return nil, status.Error(codes.InvalidArgument, "event_id is required")
 	}
 
-	// Crear slug a partir del nombre
+	// Generar slug a partir del nombre
 	slug := generateSlug(req.Name)
 
 	// Valores por defecto
@@ -49,7 +43,9 @@ func (h *CategoryHandler) CreateCategory(ctx context.Context, req *osmi.CreateCa
 	isFeatured := false
 	sortOrder := 0
 
+	// 🔥 CREAR DTO CON EVENT_ID
 	createReq := &categorydto.CreateCategoryRequest{
+		EventID:     req.EventId, // 🔥 NUEVO - obligatorio
 		Name:        req.Name,
 		Slug:        slug,
 		Description: req.Description,
@@ -61,17 +57,13 @@ func (h *CategoryHandler) CreateCategory(ctx context.Context, req *osmi.CreateCa
 		SortOrder:   &sortOrder,
 	}
 
-	// Llamar al servicio
+	// Llamar al servicio - AHORA CREA LA CATEGORÍA DIRECTAMENTE CON EL EVENTO
 	category, err := h.categoryService.CreateCategory(ctx, createReq)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	// Asociar la categoría al evento
-	err = h.categoryService.AddEventToCategory(ctx, req.EventId, category.PublicID, false)
-	if err != nil {
-		log.Printf("Warning: failed to associate category with event: %v", err)
-	}
+	// ❌ ELIMINADO: AddEventToCategory - ya no es necesario porque la categoría ya tiene event_id
 
 	return h.categoryToResponse(category, req.EventId), nil
 }
@@ -82,8 +74,8 @@ func (h *CategoryHandler) GetEventCategories(ctx context.Context, req *osmi.GetE
 		return nil, status.Error(codes.InvalidArgument, "event public_id is required")
 	}
 
-	// Llamar al servicio
-	categories, err := h.categoryService.GetEventCategories(ctx, req.PublicId)
+	// 🔥 USAR EL NUEVO MÉTODO DEL SERVICIO
+	categories, err := h.categoryService.GetCategoriesByEvent(ctx, req.PublicId, nil)
 	if err != nil {
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
@@ -94,18 +86,12 @@ func (h *CategoryHandler) GetEventCategories(ctx context.Context, req *osmi.GetE
 		pbCategories[i] = h.categoryToResponse(category, req.PublicId)
 	}
 
-	eventName := ""
-
 	return &osmi.CategoryListResponse{
 		Categories:    pbCategories,
-		EventName:     eventName,
+		EventName:     "",
 		EventPublicId: req.PublicId,
 	}, nil
 }
-
-// ============================================================================
-// FUNCIONES HELPER
-// ============================================================================
 
 // categoryToResponse convierte una entidad Category a proto CategoryResponse
 func (h *CategoryHandler) categoryToResponse(category *entities.Category, eventID string) *osmi.CategoryResponse {

@@ -65,3 +65,9 @@ type TransferTicketRequest struct {
 	ToCustomerID   string `json:"to_customer_id" validate:"required"`
 	Token          string `json:"token,omitempty"`
 }
+
+// PurchaseTicketRequest para comprar un ticket reservado
+type PurchaseTicketRequest struct {
+	TicketID   string `json:"ticket_id" validate:"required"`
+	CustomerID string `json:"customer_id" validate:"required"`
+}

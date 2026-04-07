@@ -39,7 +39,7 @@ func NewTicketService(
 	}
 }
 
-// CreateTicket crea un nuevo ticket vendido
+// CreateTicket crea un nuevo ticket vendido (flujo directo - temporal)
 func (s *TicketService) CreateTicket(ctx context.Context, req *ticketdto.CreateTicketRequest) (*entities.Ticket, error) {
 	ticketType, err := s.ticketTypeRepo.FindByPublicID(ctx, req.TicketTypeID)
 	if err != nil {
@@ -111,24 +111,28 @@ func (s *TicketService) CreateTicket(ctx context.Context, req *ticketdto.CreateT
 	return ticket, nil
 }
 
-// ReserveTicket reserva un ticket
+// ReserveTicket reserva un ticket - CORREGIDO (usando los campos del DTO original)
 func (s *TicketService) ReserveTicket(ctx context.Context, req *ticketdto.ReserveTicketRequest) (*entities.Ticket, error) {
+	// 🔥 Usar TicketID (que es el ID del ticket type)
+	if req.TicketID == "" {
+		return nil, errors.New("ticket_type_id is required")
+	}
+
+	// 🔥 Por ahora, reservamos 1 ticket por llamada (quantity = 1)
+	// Si necesitas quantity, habrá que agregarlo al DTO y al handler
+	quantity := 1
+
 	ticketType, err := s.ticketTypeRepo.FindByPublicID(ctx, req.TicketID)
 	if err != nil {
 		return nil, fmt.Errorf("ticket type not found: %w", err)
 	}
 
-	available, err := s.ticketTypeRepo.CheckAvailability(ctx, ticketType.ID, 1)
+	available, err := s.ticketTypeRepo.CheckAvailability(ctx, ticketType.ID, quantity)
 	if err != nil {
 		return nil, fmt.Errorf("error checking availability: %w", err)
 	}
 	if !available {
 		return nil, errors.New("ticket type not available")
-	}
-
-	var customerID *int64
-	if req.UserID != "" {
-		// Nota: Necesitarías una forma de obtener customer por userID
 	}
 
 	event, err := s.eventRepo.GetByID(ctx, ticketType.EventID)
@@ -140,25 +144,29 @@ func (s *TicketService) ReserveTicket(ctx context.Context, req *ticketdto.Reserv
 		return nil, errors.New("event does not allow reservations")
 	}
 
+	// Calcular expiración
 	duration := req.ExpiresAt.Sub(time.Now())
 	if duration <= 0 {
-		duration = time.Duration(event.ReservationDuration) * time.Minute
-	}
-	if duration <= 0 {
-		duration = 15 * time.Minute
+		reservationDuration := time.Duration(event.ReservationDuration) * time.Minute
+		if reservationDuration <= 0 {
+			reservationDuration = 15 * time.Minute
+		}
+		duration = reservationDuration
 	}
 	reservationExpiresAt := time.Now().Add(duration)
 
 	now := time.Now()
+
+	// Crear ticket reservado
 	ticket := &entities.Ticket{
 		PublicID:             uuid.New().String(),
 		TicketTypeID:         ticketType.ID,
 		EventID:              event.ID,
-		CustomerID:           customerID,
+		CustomerID:           nil,
 		Code:                 s.generateTicketCode(event.ID, ticketType.ID, 0),
 		SecretHash:           uuid.New().String(),
 		Status:               string(enums.TicketStatusReserved),
-		FinalPrice:           ticketType.BasePrice,
+		FinalPrice:           ticketType.GetFinalPrice(),
 		Currency:             ticketType.Currency,
 		TaxAmount:            ticketType.BasePrice * ticketType.TaxRate,
 		ReservedAt:           &now,
@@ -176,7 +184,7 @@ func (s *TicketService) ReserveTicket(ctx context.Context, req *ticketdto.Reserv
 		return nil, fmt.Errorf("failed to create reservation: %w", err)
 	}
 
-	err = s.ticketTypeRepo.ReserveTickets(ctx, ticketType.ID, 1)
+	err = s.ticketTypeRepo.ReserveTickets(ctx, ticketType.ID, quantity)
 	if err != nil {
 		_ = s.ticketRepo.Delete(ctx, ticket.ID)
 		return nil, fmt.Errorf("failed to reserve tickets: %w", err)
@@ -187,6 +195,10 @@ func (s *TicketService) ReserveTicket(ctx context.Context, req *ticketdto.Reserv
 
 // CheckInTicket marca un ticket como usado
 func (s *TicketService) CheckInTicket(ctx context.Context, req *ticketdto.CheckInTicketRequest) (*entities.Ticket, error) {
+	if req.TicketID == "" {
+		return nil, errors.New("ticket_id is required")
+	}
+
 	ticket, err := s.ticketRepo.GetByPublicID(ctx, req.TicketID)
 	if err != nil {
 		return nil, fmt.Errorf("ticket not found: %w", err)
@@ -215,7 +227,7 @@ func (s *TicketService) CheckInTicket(ctx context.Context, req *ticketdto.CheckI
 
 	var validatorID *int64
 	if req.CheckedBy != "" {
-		// TODO: Validar validador
+		// TODO: Validar validador cuando exista auth
 	}
 
 	err = s.ticketRepo.CheckIn(ctx, ticket.ID, req.Method, req.Location, validatorID)
@@ -233,17 +245,27 @@ func (s *TicketService) CheckInTicket(ctx context.Context, req *ticketdto.CheckI
 
 // TransferTicket transfiere un ticket
 func (s *TicketService) TransferTicket(ctx context.Context, req *ticketdto.TransferTicketRequest) (*entities.Ticket, error) {
+	if req.TicketID == "" {
+		return nil, errors.New("ticket_id is required")
+	}
+	if req.ToCustomerID == "" {
+		return nil, errors.New("to_customer_id is required")
+	}
+
 	ticket, err := s.ticketRepo.GetByPublicID(ctx, req.TicketID)
 	if err != nil {
 		return nil, fmt.Errorf("ticket not found: %w", err)
 	}
 
-	fromCustomer, err := s.customerRepo.GetByPublicID(ctx, req.FromCustomerID)
-	if err != nil {
-		return nil, fmt.Errorf("sender customer not found: %w", err)
-	}
-	if ticket.CustomerID == nil || *ticket.CustomerID != fromCustomer.ID {
-		return nil, errors.New("ticket does not belong to sender")
+	// Si se proporciona from_customer_id, validar ownership
+	if req.FromCustomerID != "" {
+		fromCustomer, err := s.customerRepo.GetByPublicID(ctx, req.FromCustomerID)
+		if err != nil {
+			return nil, fmt.Errorf("sender customer not found: %w", err)
+		}
+		if ticket.CustomerID == nil || *ticket.CustomerID != fromCustomer.ID {
+			return nil, errors.New("ticket does not belong to sender")
+		}
 	}
 
 	if !ticket.CanBeTransferred() {
@@ -384,7 +406,7 @@ func (s *TicketService) GetTicketsByCustomer(ctx context.Context, customerID str
 	return s.ticketRepo.Find(ctx, repoFilter)
 }
 
-// UpdateTicket actualiza información de un ticket
+// UpdateTicket actualiza información de un ticket (incluyendo status)
 func (s *TicketService) UpdateTicket(ctx context.Context, ticketID string, req *ticketdto.UpdateTicketRequest) (*entities.Ticket, error) {
 	ticket, err := s.ticketRepo.GetByPublicID(ctx, ticketID)
 	if err != nil {
@@ -401,19 +423,32 @@ func (s *TicketService) UpdateTicket(ctx context.Context, ticketID string, req *
 		ticket.AttendeePhone = req.AttendeePhone
 	}
 
+	// 🔥 Manejar cambio de status (reserved → sold)
 	if req.Status != nil && *req.Status != ticket.Status {
-		if !enums.CanTransitionTicket(enums.TicketStatus(ticket.Status), enums.TicketStatus(*req.Status)) {
-			return nil, fmt.Errorf("invalid status transition from %s to %s", ticket.Status, *req.Status)
-		}
+		// Validar transición permitida
+		if ticket.Status == string(enums.TicketStatusReserved) && *req.Status == string(enums.TicketStatusSold) {
+			// Transición válida: reserved → sold
+			now := time.Now()
+			ticket.Status = *req.Status
+			ticket.SoldAt = &now
 
-		now := time.Now()
-		switch enums.TicketStatus(*req.Status) {
-		case enums.TicketStatusCancelled:
-			ticket.CancelledAt = &now
-		case enums.TicketStatusRefunded:
-			ticket.RefundedAt = &now
+			// Confirmar reserva en inventario
+			err = s.ticketTypeRepo.ConfirmReservation(ctx, ticket.TicketTypeID, 1)
+			if err != nil {
+				return nil, fmt.Errorf("failed to confirm reservation: %w", err)
+			}
+		} else if !enums.CanTransitionTicket(enums.TicketStatus(ticket.Status), enums.TicketStatus(*req.Status)) {
+			return nil, fmt.Errorf("invalid status transition from %s to %s", ticket.Status, *req.Status)
+		} else {
+			now := time.Now()
+			switch enums.TicketStatus(*req.Status) {
+			case enums.TicketStatusCancelled:
+				ticket.CancelledAt = &now
+			case enums.TicketStatusRefunded:
+				ticket.RefundedAt = &now
+			}
+			ticket.Status = *req.Status
 		}
-		ticket.Status = *req.Status
 	}
 
 	ticket.UpdatedAt = time.Now()
@@ -542,4 +577,62 @@ func (s *TicketService) ReleaseExpiredReservations(ctx context.Context) (int, er
 func (s *TicketService) generateTicketCode(eventID, ticketTypeID int64, attempt int) string {
 	timestamp := time.Now().Unix()
 	return fmt.Sprintf("TKT-%d-%d-%d-%d", eventID, ticketTypeID, timestamp, attempt)
+}
+
+// PurchaseTicket convierte una reserva en venta
+func (s *TicketService) PurchaseTicket(ctx context.Context, req *ticketdto.PurchaseTicketRequest) (*entities.Ticket, error) {
+	if req.TicketID == "" {
+		return nil, errors.New("ticket_id is required")
+	}
+	if req.CustomerID == "" {
+		return nil, errors.New("customer_id is required")
+	}
+
+	ticket, err := s.ticketRepo.GetByPublicID(ctx, req.TicketID)
+	if err != nil {
+		return nil, fmt.Errorf("ticket not found: %w", err)
+	}
+
+	// Debe estar reservado
+	if ticket.Status != string(enums.TicketStatusReserved) {
+		return nil, errors.New("ticket is not reserved")
+	}
+
+	// Validar expiración
+	if ticket.ReservationExpiresAt != nil && time.Now().After(*ticket.ReservationExpiresAt) {
+		return nil, errors.New("reservation expired")
+	}
+
+	customer, err := s.customerRepo.GetByPublicID(ctx, req.CustomerID)
+	if err != nil {
+		return nil, fmt.Errorf("customer not found: %w", err)
+	}
+
+	now := time.Now()
+
+	// Actualizar ticket
+	ticket.Status = string(enums.TicketStatusSold)
+	ticket.CustomerID = &customer.ID
+	ticket.SoldAt = &now
+	ticket.UpdatedAt = now
+
+	// 🔥 CRÍTICO: Limpiar campos de reserva
+	ticket.ReservedAt = nil
+	ticket.ReservedBy = nil
+	ticket.ReservationExpiresAt = nil // 🔥 ESTO ES CLAVE
+
+	err = s.ticketRepo.Update(ctx, ticket)
+	if err != nil {
+		return nil, fmt.Errorf("failed to purchase ticket: %w", err)
+	}
+
+	// Confirmar reserva en inventario
+	err = s.ticketTypeRepo.ConfirmReservation(ctx, ticket.TicketTypeID, 1)
+	if err != nil {
+		return nil, fmt.Errorf("failed to confirm reservation: %w", err)
+	}
+
+	go s.customerRepo.UpdateStats(ctx, customer.ID, ticket.FinalPrice)
+
+	return ticket, nil
 }

@@ -28,7 +28,7 @@ func NewTicketHandler(ticketService *services.TicketService) *TicketHandler {
 	}
 }
 
-// CreateTicket maneja la creación de tickets
+// CreateTicket maneja la creación de tickets (venta directa)
 func (h *TicketHandler) CreateTicket(ctx context.Context, req *osmi.CreateTicketRequest) (*osmi.TicketResponse, error) {
 	if req.EventId == "" {
 		return nil, status.Error(codes.InvalidArgument, "event_id is required")
@@ -63,16 +63,15 @@ func (h *TicketHandler) CreateTicket(ctx context.Context, req *osmi.CreateTicket
 
 // ReserveTicket maneja la reserva de tickets
 func (h *TicketHandler) ReserveTicket(ctx context.Context, req *osmi.ReserveTicketRequest) (*osmi.TicketResponse, error) {
+	// 🔥 ELIMINADO: validación de user_id (temporalmente)
 	if req.TicketTypeId == "" {
 		return nil, status.Error(codes.InvalidArgument, "ticket_type_id is required")
 	}
-	if req.UserId == "" {
-		return nil, status.Error(codes.InvalidArgument, "user_id is required")
-	}
+	// 🔥 COMENTADO: if req.UserId == "" { return nil, status.Error(codes.InvalidArgument, "user_id is required") }
 
 	reserveReq := &ticketdto.ReserveTicketRequest{
 		TicketID:  req.TicketTypeId,
-		UserID:    req.UserId,
+		UserID:    req.UserId, // Puede estar vacío
 		ExpiresAt: req.ExpiresAt.AsTime(),
 	}
 
@@ -84,18 +83,42 @@ func (h *TicketHandler) ReserveTicket(ctx context.Context, req *osmi.ReserveTick
 	return h.ticketToProto(ticket), nil
 }
 
+// PurchaseTicket maneja la compra de un ticket reservado
+func (h *TicketHandler) PurchaseTicket(ctx context.Context, req *osmi.PurchaseTicketRequest) (*osmi.TicketResponse, error) {
+	if req.TicketId == "" {
+		return nil, status.Error(codes.InvalidArgument, "ticket_id is required")
+	}
+	if req.CustomerId == "" {
+		return nil, status.Error(codes.InvalidArgument, "customer_id is required")
+	}
+
+	purchaseReq := &ticketdto.PurchaseTicketRequest{
+		TicketID:   req.TicketId,
+		CustomerID: req.CustomerId,
+	}
+
+	ticket, err := h.ticketService.PurchaseTicket(ctx, purchaseReq)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	// 🔥 CAMBIADO: usar ticketToProto en lugar de respuesta manual
+	return h.ticketToProto(ticket), nil
+}
+
 // CheckInTicket maneja el check-in de tickets
 func (h *TicketHandler) CheckInTicket(ctx context.Context, req *osmi.CheckInTicketRequest) (*osmi.TicketResponse, error) {
 	if req.TicketId == "" {
 		return nil, status.Error(codes.InvalidArgument, "ticket_id is required")
 	}
-	if req.CheckedBy == "" {
-		return nil, status.Error(codes.InvalidArgument, "checked_by is required")
-	}
+	// 🔥 COMENTADO: validación de checked_by (temporalmente)
+	// if req.CheckedBy == "" {
+	//     return nil, status.Error(codes.InvalidArgument, "checked_by is required")
+	// }
 
 	checkinReq := &ticketdto.CheckInTicketRequest{
 		TicketID:  req.TicketId,
-		CheckedBy: req.CheckedBy,
+		CheckedBy: req.CheckedBy, // Puede estar vacío
 		Method:    req.Method,
 		Location:  req.Location,
 	}
@@ -113,16 +136,17 @@ func (h *TicketHandler) TransferTicket(ctx context.Context, req *osmi.TransferTi
 	if req.TicketId == "" {
 		return nil, status.Error(codes.InvalidArgument, "ticket_id is required")
 	}
-	if req.FromCustomerId == "" {
-		return nil, status.Error(codes.InvalidArgument, "from_customer_id is required")
-	}
+	// 🔥 COMENTADO: validación de from_customer_id (temporalmente)
+	// if req.FromCustomerId == "" {
+	//     return nil, status.Error(codes.InvalidArgument, "from_customer_id is required")
+	// }
 	if req.ToCustomerId == "" {
 		return nil, status.Error(codes.InvalidArgument, "to_customer_id is required")
 	}
 
 	transferReq := &ticketdto.TransferTicketRequest{
 		TicketID:       req.TicketId,
-		FromCustomerID: req.FromCustomerId,
+		FromCustomerID: req.FromCustomerId, // Puede estar vacío
 		ToCustomerID:   req.ToCustomerId,
 		Token:          req.Token,
 	}

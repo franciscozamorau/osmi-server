@@ -1,4 +1,3 @@
-// internal/application/services/category_service.go
 package services
 
 import (
@@ -28,20 +27,22 @@ func NewCategoryService(
 	}
 }
 
-// ============================================================================
-// FUNCIÓN HELPER PARA GENERAR SLUGS ÚNICOS
-// ============================================================================
+// generateUniqueSlugForEvent genera un slug único basado en el nombre y slugs existentes del evento
+func (s *CategoryService) generateUniqueSlugForEvent(ctx context.Context, eventID string, name string) (string, error) {
+	existingCategories, err := s.categoryRepo.GetByEventID(ctx, eventID, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to get existing categories: %w", err)
+	}
 
-// generateUniqueSlug genera un slug único basado en el nombre y slugs existentes
-func generateUniqueSlug(name string, existingSlugs []string) string {
-	// Convertir a slug básico (ej: "Zona VIP" -> "zona-vip")
+	existingSlugs := make([]string, 0, len(existingCategories))
+	for _, cat := range existingCategories {
+		existingSlugs = append(existingSlugs, cat.Slug)
+	}
+
 	baseSlug := strings.ToLower(strings.ReplaceAll(name, " ", "-"))
-
-	// Limpiar caracteres especiales (solo letras, números y guiones)
 	re := regexp.MustCompile(`[^a-z0-9-]`)
 	baseSlug = re.ReplaceAllString(baseSlug, "")
 
-	// Si después de limpiar queda vacío, usar un default
 	if baseSlug == "" {
 		baseSlug = "categoria"
 	}
@@ -49,7 +50,6 @@ func generateUniqueSlug(name string, existingSlugs []string) string {
 	slug := baseSlug
 	counter := 1
 
-	// Verificar si el slug ya existe
 	for {
 		exists := false
 		for _, existing := range existingSlugs {
@@ -65,33 +65,32 @@ func generateUniqueSlug(name string, existingSlugs []string) string {
 		slug = fmt.Sprintf("%s-%d", baseSlug, counter)
 	}
 
-	return slug
+	return slug, nil
 }
 
-// ============================================================================
-// MÉTODOS PRINCIPALES
-// ============================================================================
-
-// CreateCategory maneja la creación de una nueva categoría
+// CreateCategory maneja la creación de una nueva categoría para un evento específico
 func (s *CategoryService) CreateCategory(ctx context.Context, req *categorydto.CreateCategoryRequest) (*entities.Category, error) {
-	// Obtener slugs existentes para generar uno único
-	categories, _, err := s.categoryRepo.Find(ctx, &repository.CategoryFilter{
-		Limit: 1000,
-	})
+	event, err := s.eventRepo.GetByPublicID(ctx, req.EventID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get existing categories: %w", err)
+		return nil, fmt.Errorf("event not found: %s", req.EventID)
 	}
 
-	// Extraer slugs existentes
-	existingSlugs := make([]string, 0, len(categories))
-	for _, cat := range categories {
-		existingSlugs = append(existingSlugs, cat.Slug)
+	existingCategories, err := s.categoryRepo.GetByEventID(ctx, event.PublicID, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check existing categories: %w", err)
 	}
 
-	// Generar slug único
-	slug := generateUniqueSlug(req.Name, existingSlugs)
+	for _, cat := range existingCategories {
+		if cat.Name == req.Name {
+			return nil, fmt.Errorf("category with name '%s' already exists for this event", req.Name)
+		}
+	}
 
-	// Determinar nivel y padre
+	slug, err := s.generateUniqueSlugForEvent(ctx, event.PublicID, req.Name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate slug: %w", err)
+	}
+
 	var parentID *int64
 	level := 1
 
@@ -100,11 +99,13 @@ func (s *CategoryService) CreateCategory(ctx context.Context, req *categorydto.C
 		if err != nil {
 			return nil, fmt.Errorf("parent category not found with ID: %d", *req.ParentID)
 		}
+		if parent.EventID != event.PublicID {
+			return nil, fmt.Errorf("parent category does not belong to this event")
+		}
 		parentID = &parent.ID
 		level = parent.Level + 1
 	}
 
-	// Manejo de campos opcionales
 	description := ""
 	if req.Description != "" {
 		description = req.Description
@@ -125,11 +126,10 @@ func (s *CategoryService) CreateCategory(ctx context.Context, req *categorydto.C
 		metaDescription = req.MetaDescription
 	}
 
-	// Valores por defecto
 	req.SetDefaults()
 
-	// Crear entidad
 	category := &entities.Category{
+		EventID:          event.PublicID,
 		Name:             req.Name,
 		Slug:             slug,
 		Description:      &description,
@@ -138,14 +138,15 @@ func (s *CategoryService) CreateCategory(ctx context.Context, req *categorydto.C
 		ParentID:         parentID,
 		Level:            level,
 		Path:             "",
+		Capacity:         0,
+		TotalEvents:      0,
+		TotalTicketsSold: 0,
+		TotalRevenue:     0,
 		IsActive:         *req.IsActive,
 		IsFeatured:       *req.IsFeatured,
 		SortOrder:        *req.SortOrder,
 		MetaTitle:        &metaTitle,
 		MetaDescription:  &metaDescription,
-		TotalEvents:      0,
-		TotalTicketsSold: 0,
-		TotalRevenue:     0,
 		CreatedAt:        time.Now(),
 		UpdatedAt:        time.Now(),
 	}
@@ -175,9 +176,18 @@ func (s *CategoryService) GetCategoryBySlug(ctx context.Context, slug string) (*
 	return category, nil
 }
 
+// GetCategoriesByEvent obtiene todas las categorías de un evento
+func (s *CategoryService) GetCategoriesByEvent(ctx context.Context, eventID string, isActive *bool) ([]*entities.Category, error) {
+	event, err := s.eventRepo.GetByPublicID(ctx, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("event not found: %s", eventID)
+	}
+
+	return s.categoryRepo.GetByEventID(ctx, event.PublicID, isActive)
+}
+
 // ListCategories lista categorías con filtros y paginación
 func (s *CategoryService) ListCategories(ctx context.Context, filter *categorydto.CategoryFilter, page, pageSize int) ([]*entities.Category, int64, error) {
-	// Crear filtro del repositorio
 	repoFilter := &repository.CategoryFilter{
 		Limit:  pageSize,
 		Offset: (page - 1) * pageSize,
@@ -222,15 +232,28 @@ func (s *CategoryService) UpdateCategory(ctx context.Context, publicID string, r
 		return nil, fmt.Errorf("category not found: %s", publicID)
 	}
 
-	// Actualizar campos
-	if req.Name != nil {
+	if req.Name != nil && *req.Name != category.Name {
+		existingCategories, err := s.categoryRepo.GetByEventID(ctx, category.EventID, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check existing categories: %w", err)
+		}
+		for _, cat := range existingCategories {
+			if cat.Name == *req.Name && cat.PublicID != publicID {
+				return nil, fmt.Errorf("category with name '%s' already exists for this event", *req.Name)
+			}
+		}
 		category.Name = *req.Name
 	}
 
-	// Manejar actualización de slug
 	if req.Slug != nil && *req.Slug != category.Slug {
-		if existing, _ := s.categoryRepo.GetBySlug(ctx, *req.Slug); existing != nil && existing.PublicID != publicID {
-			return nil, fmt.Errorf("slug already exists: %s", *req.Slug)
+		existingCategories, err := s.categoryRepo.GetByEventID(ctx, category.EventID, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check existing slugs: %w", err)
+		}
+		for _, cat := range existingCategories {
+			if cat.Slug == *req.Slug && cat.PublicID != publicID {
+				return nil, fmt.Errorf("slug '%s' already exists for this event", *req.Slug)
+			}
 		}
 		category.Slug = *req.Slug
 	}
@@ -260,7 +283,6 @@ func (s *CategoryService) UpdateCategory(ctx context.Context, publicID string, r
 		category.MetaDescription = req.MetaDescription
 	}
 
-	// Actualizar ParentID
 	if req.ParentID != nil {
 		if *req.ParentID == 0 {
 			category.ParentID = nil
@@ -269,6 +291,9 @@ func (s *CategoryService) UpdateCategory(ctx context.Context, publicID string, r
 			parent, err := s.categoryRepo.GetByID(ctx, *req.ParentID)
 			if err != nil {
 				return nil, fmt.Errorf("parent category not found with ID: %d", *req.ParentID)
+			}
+			if parent.EventID != category.EventID {
+				return nil, fmt.Errorf("parent category does not belong to this event")
 			}
 			category.ParentID = &parent.ID
 			category.Level = parent.Level + 1
@@ -291,47 +316,16 @@ func (s *CategoryService) DeleteCategory(ctx context.Context, publicID string) e
 		return fmt.Errorf("category not found: %s", publicID)
 	}
 
-	// Verificar si tiene eventos asociados
-	events, err := s.categoryRepo.GetEventCategories(ctx, category.ID)
-	if err == nil && len(events) > 0 {
-		return fmt.Errorf("cannot delete category with %d associated events", len(events))
-	}
-
-	// Soft delete
-	category.IsActive = false
-	category.UpdatedAt = time.Now()
-	return s.categoryRepo.Update(ctx, category)
-}
-
-// AddEventToCategory asocia un evento a una categoría
-func (s *CategoryService) AddEventToCategory(ctx context.Context, eventID, categoryID string, isPrimary bool) error {
-	event, err := s.eventRepo.GetByPublicID(ctx, eventID)
-	if err != nil {
-		return fmt.Errorf("event not found: %s", eventID)
-	}
-
-	category, err := s.categoryRepo.GetByPublicID(ctx, categoryID)
-	if err != nil {
-		return fmt.Errorf("category not found: %s", categoryID)
-	}
-
-	// Actualizar contadores
-	if isPrimary {
-		category.TotalEvents++
-		if err := s.categoryRepo.Update(ctx, category); err != nil {
-			return fmt.Errorf("failed to update category event count: %w", err)
+	children, err := s.categoryRepo.GetByEventID(ctx, category.EventID, nil)
+	if err == nil {
+		for _, child := range children {
+			if child.ParentID != nil && *child.ParentID == category.ID {
+				return fmt.Errorf("cannot delete category with child categories")
+			}
 		}
 	}
 
-	return s.categoryRepo.AddEventToCategory(ctx, event.ID, category.ID, isPrimary)
-}
-
-// GetEventCategories obtiene las categorías de un evento
-func (s *CategoryService) GetEventCategories(ctx context.Context, eventID string) ([]*entities.Category, error) {
-	event, err := s.eventRepo.GetByPublicID(ctx, eventID)
-	if err != nil {
-		return nil, fmt.Errorf("event not found: %s", eventID)
-	}
-
-	return s.categoryRepo.GetEventCategories(ctx, event.ID)
+	category.IsActive = false
+	category.UpdatedAt = time.Now()
+	return s.categoryRepo.Update(ctx, category)
 }

@@ -153,26 +153,65 @@ func (h *EventHandler) GetEvent(ctx context.Context, req *osmi.GetEventRequest) 
 
 // ListEvents lista eventos con filtros y paginación
 func (h *EventHandler) ListEvents(ctx context.Context, req *osmi.ListEventsRequest) (*osmi.EventListResponse, error) {
-	// Convertir filtros - CORREGIDO: usar punteros porque el DTO espera *string
-	filter := eventdto.EventFilter{
-		Search:     req.Name,
-		Status:     &req.Status,   // ✅ convertir string a *string
-		DateFrom:   &req.DateFrom, // ✅ convertir string a *string
-		DateTo:     &req.DateTo,   // ✅ convertir string a *string
-		City:       &req.City,     // ✅ convertir string a *string
-		Country:    &req.Country,  // ✅ convertir string a *string
-		IsFeatured: &req.IsFeatured,
-		IsFree:     &req.IsFree,
+	// ========================================================================
+	// CRÍTICO: Solo crear punteros si el valor NO está vacío
+	// Si está vacío, se envía nil para que PostgreSQL lo ignore
+	// ========================================================================
+
+	// Para eventStatus (renombrado para no chocar con el paquete status)
+	var eventStatus *string
+	if req.Status != "" {
+		eventStatus = &req.Status
 	}
 
-	// Procesar organizer_id si viene (como string, no puntero)
+	// Para DateFrom (opcional)
+	var dateFrom *string
+	if req.DateFrom != "" {
+		dateFrom = &req.DateFrom
+	}
+
+	// Para DateTo (opcional)
+	var dateTo *string
+	if req.DateTo != "" {
+		dateTo = &req.DateTo
+	}
+
+	// Para City (opcional)
+	var city *string
+	if req.City != "" {
+		city = &req.City
+	}
+
+	// Para Country (opcional)
+	var country *string
+	if req.Country != "" {
+		country = &req.Country
+	}
+
+	// Para OrganizerID (opcional)
+	var organizerID *string
 	if req.OrganizerId != "" {
-		filter.OrganizerID = &req.OrganizerId
+		organizerID = &req.OrganizerId
 	}
 
-	// Procesar category_id si viene
+	// Para CategoryID (opcional)
+	var categoryID *string
 	if req.CategoryId != "" {
-		filter.CategoryID = &req.CategoryId
+		categoryID = &req.CategoryId
+	}
+
+	// Construir filtro SOLO con valores no vacíos
+	filter := eventdto.EventFilter{
+		Search:      req.Name,
+		Status:      eventStatus, // ✅ nil si viene vacío, renombrado para evitar conflicto
+		DateFrom:    dateFrom,    // ✅ nil si viene vacío
+		DateTo:      dateTo,      // ✅ nil si viene vacío
+		City:        city,        // ✅ nil si viene vacío
+		Country:     country,     // ✅ nil si viene vacío
+		OrganizerID: organizerID, // ✅ nil si viene vacío
+		CategoryID:  categoryID,  // ✅ nil si viene vacío
+		IsFeatured:  &req.IsFeatured,
+		IsFree:      &req.IsFree,
 	}
 
 	// Paginación
@@ -230,16 +269,16 @@ func (h *EventHandler) UpdateEvent(ctx context.Context, req *osmi.UpdateEventReq
 		IsFeatured:       req.IsFeatured,
 	}
 
-	// CORREGIDO: fechas - req.StartDate y req.EndDate son *string
+	// Fechas - req.StartDate y req.EndDate son *string
 	// Validar con != nil, no con != ""
 	if req.StartDate != nil {
-		updateReq.StartsAt = req.StartDate // ✅ asignar *string directamente
+		updateReq.StartsAt = req.StartDate
 	}
 	if req.EndDate != nil {
-		updateReq.EndsAt = req.EndDate // ✅ asignar *string directamente
+		updateReq.EndsAt = req.EndDate
 	}
 
-	// CORREGIDO: conversión de *int32 a *int
+	// Conversión de *int32 a *int
 	if req.MaxAttendees != nil {
 		val := int(*req.MaxAttendees)
 		updateReq.MaxAttendees = &val

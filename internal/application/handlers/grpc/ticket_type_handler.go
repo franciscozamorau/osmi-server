@@ -80,7 +80,7 @@ func (h *TicketTypeHandler) CreateTicketType(ctx context.Context, req *osmi.Crea
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	return h.ticketTypeToProto(ticketType), nil
+	return h.ticketTypeToProto(ticketType, req.EventId), nil
 }
 
 // GetTicketType obtiene un tipo de ticket por ID
@@ -98,16 +98,18 @@ func (h *TicketTypeHandler) GetTicketType(ctx context.Context, req *osmi.GetTick
 		return nil, status.Error(codes.NotFound, "ticket type not found")
 	}
 
-	return h.ticketTypeToProto(ticketType), nil
+	// Necesitamos obtener el eventID del ticket type
+	eventID, err := h.ticketTypeService.GetEventIDByTicketTypeID(ctx, req.Id)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to get event id")
+	}
+
+	return h.ticketTypeToProto(ticketType, eventID), nil
 }
 
 // ListTicketTypes lista tipos de ticket con filtros
 func (h *TicketTypeHandler) ListTicketTypes(ctx context.Context, req *osmi.ListTicketTypesRequest) (*osmi.TicketTypeListResponse, error) {
 	filter := &tickettypedto.TicketTypeFilter{}
-
-	if req.EventId != "" {
-		// Necesitarías convertir el event_id a int64
-	}
 
 	if req.IsActive {
 		active := true
@@ -123,18 +125,33 @@ func (h *TicketTypeHandler) ListTicketTypes(ctx context.Context, req *osmi.ListT
 		pageSize = 20
 	}
 
-	ticketTypes, total, err := h.ticketTypeService.ListTicketTypes(ctx, filter, page, pageSize)
+	var ticketTypes []*entities.TicketType
+	var total int64
+	var err error
+
+	// Si hay eventId, usar método específico
+	if req.EventId != "" {
+		ticketTypes, err = h.ticketTypeService.GetTicketTypesByEvent(ctx, req.EventId)
+		total = int64(len(ticketTypes))
+	} else {
+		ticketTypes, total, err = h.ticketTypeService.ListTicketTypes(ctx, filter, page, pageSize)
+	}
+
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	pbTicketTypes := make([]*osmi.TicketTypeResponse, len(ticketTypes))
 	for i, tt := range ticketTypes {
-		pbTicketTypes[i] = h.ticketTypeToProto(tt)
+		eventID, err := h.ticketTypeService.GetEventPublicIDByTicketType(ctx, tt.PublicID)
+		if err != nil {
+			eventID = ""
+		}
+		pbTicketTypes[i] = h.ticketTypeToProto(tt, eventID)
 	}
 
 	totalPages := int32(0)
-	if pageSize > 0 {
+	if pageSize > 0 && total > 0 {
 		totalPages = int32((int(total) + pageSize - 1) / pageSize)
 	}
 
@@ -147,8 +164,8 @@ func (h *TicketTypeHandler) ListTicketTypes(ctx context.Context, req *osmi.ListT
 	}, nil
 }
 
-// ticketTypeToProto convierte entidad a proto
-func (h *TicketTypeHandler) ticketTypeToProto(tt *entities.TicketType) *osmi.TicketTypeResponse {
+// ticketTypeToProto convierte entidad a proto - AHORA RECIBE eventID
+func (h *TicketTypeHandler) ticketTypeToProto(tt *entities.TicketType, eventID string) *osmi.TicketTypeResponse {
 	if tt == nil {
 		return nil
 	}
@@ -158,7 +175,7 @@ func (h *TicketTypeHandler) ticketTypeToProto(tt *entities.TicketType) *osmi.Tic
 
 	resp := &osmi.TicketTypeResponse{
 		Id:                tt.PublicID,
-		EventId:           "",
+		EventId:           eventID, // 🔥 AHORA USA EL eventID QUE SE PASA
 		Name:              tt.Name,
 		Description:       safeString(tt.Description),
 		TicketClass:       tt.TicketClass,

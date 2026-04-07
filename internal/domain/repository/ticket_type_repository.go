@@ -47,4 +47,5 @@ type TicketTypeRepository interface {
 	CountReserved(ctx context.Context, ticketTypeID int64) (int, error)
 	GetRevenue(ctx context.Context, ticketTypeID int64) (float64, error)
 	GetSalesVelocity(ctx context.Context, ticketTypeID int64) (float64, error)
+	ConfirmReservation(ctx context.Context, ticketTypeID int64, quantity int) error
 }

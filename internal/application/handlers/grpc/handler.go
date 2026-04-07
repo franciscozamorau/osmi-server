@@ -105,6 +105,11 @@ func (h *Handler) ReserveTicket(ctx context.Context, req *osmi.ReserveTicketRequ
 	return h.ticketHandler.ReserveTicket(ctx, req)
 }
 
+// PurchaseTicket maneja la compra de un ticket reservado
+func (h *Handler) PurchaseTicket(ctx context.Context, req *osmi.PurchaseTicketRequest) (*osmi.TicketResponse, error) {
+	return h.ticketHandler.PurchaseTicket(ctx, req)
+}
+
 func (h *Handler) CheckInTicket(ctx context.Context, req *osmi.CheckInTicketRequest) (*osmi.TicketResponse, error) {
 	return h.ticketHandler.CheckInTicket(ctx, req)
 }
