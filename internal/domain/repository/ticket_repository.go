@@ -8,6 +8,7 @@ import (
 
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
 	"github.com/franciscozamorau/osmi-server/internal/domain/enums"
+	"github.com/jackc/pgx/v5"
 )
 
 // TicketFilter encapsula TODOS los criterios de búsqueda para tickets
@@ -72,6 +73,11 @@ type TicketRepository interface {
 	CreateBatch(ctx context.Context, tickets []*entities.Ticket) error
 	Update(ctx context.Context, ticket *entities.Ticket) error
 	Delete(ctx context.Context, id int64) error
+
+	// En TicketRepository interface
+	BeginTx(ctx context.Context) (pgx.Tx, error)
+	CreateTx(ctx context.Context, tx pgx.Tx, ticket *entities.Ticket) error
+	UpdateTx(ctx context.Context, tx pgx.Tx, ticket *entities.Ticket) error
 
 	// --- Operaciones de Lectura (Flexibles) ---
 	Find(ctx context.Context, filter *TicketFilter) ([]*entities.Ticket, int64, error)

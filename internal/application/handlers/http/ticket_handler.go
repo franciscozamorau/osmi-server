@@ -1,12 +1,12 @@
 package httphandlers
 
+/*
 import (
 	"encoding/json"
 	"net/http"
 	"strconv"
 
 	"github.com/franciscozamorau/osmi-server/internal/api/dto"
-	"github.com/franciscozamorau/osmi-server/internal/api/dto/filter"
 	"github.com/franciscozamorau/osmi-server/internal/application/services"
 	"github.com/franciscozamorau/osmi-server/internal/shared/logger"
 	"github.com/go-chi/chi/v5"
@@ -335,3 +335,4 @@ func (h *TicketHTTPHandler) GetTicketStats(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
 }
+*/

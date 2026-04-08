@@ -860,3 +860,111 @@ func (r *TicketRepository) GetReservedExpired(ctx context.Context) ([]*entities.
 
 	return tickets, nil
 }
+
+// BeginTx inicia una transacción
+func (r *TicketRepository) BeginTx(ctx context.Context) (pgx.Tx, error) {
+	return r.db.Begin(ctx)
+}
+
+// CreateTx crea un ticket usando una transacción existente
+func (r *TicketRepository) CreateTx(ctx context.Context, tx pgx.Tx, ticket *entities.Ticket) error {
+	// Validar el ticket
+	if err := ticket.Validate(); err != nil {
+		return err
+	}
+
+	query := `
+		INSERT INTO ticketing.tickets (
+			public_uuid, ticket_type_id, event_id, customer_id, order_id,
+			code, secret_hash, qr_code_data, status, final_price, currency, tax_amount,
+			attendee_name, attendee_email, attendee_phone,
+			checked_in_at, checked_in_by, checkin_method, checkin_location,
+			reserved_at, reserved_by, reservation_expires_at,
+			transfer_token, transferred_from, transferred_at,
+			validation_count, last_validated_at,
+			sold_at, cancelled_at, refunded_at,
+			created_at, updated_at
+		) VALUES (
+			gen_random_uuid(), $1, $2, $3, $4,
+			$5, $6, $7, $8, $9, $10, $11,
+			$12, $13, $14, $15, $16, $17, $18,
+			$19, $20, $21, $22, $23, $24,
+			$25, $26, $27, $28, $29,
+			NOW(), NOW()
+		)
+		RETURNING id, public_uuid, created_at, updated_at
+	`
+
+	err := tx.QueryRow(ctx, query,
+		ticket.TicketTypeID, ticket.EventID, ticket.CustomerID, ticket.OrderID,
+		ticket.Code, ticket.SecretHash, ticket.QRCodeData, ticket.Status,
+		ticket.FinalPrice, ticket.Currency, ticket.TaxAmount,
+		ticket.AttendeeName, ticket.AttendeeEmail, ticket.AttendeePhone,
+		ticket.CheckedInAt, ticket.CheckedInBy, ticket.CheckinMethod, ticket.CheckinLocation,
+		ticket.ReservedAt, ticket.ReservedBy, ticket.ReservationExpiresAt,
+		ticket.TransferToken, ticket.TransferredFrom, ticket.TransferredAt,
+		ticket.ValidationCount, ticket.LastValidatedAt,
+		ticket.SoldAt, ticket.CancelledAt, ticket.RefundedAt,
+	).Scan(&ticket.ID, &ticket.PublicID, &ticket.CreatedAt, &ticket.UpdatedAt)
+
+	if err != nil {
+		return r.handleError(err, "failed to create ticket in transaction")
+	}
+
+	return nil
+}
+
+// UpdateTx actualiza un ticket usando una transacción existente
+func (r *TicketRepository) UpdateTx(ctx context.Context, tx pgx.Tx, ticket *entities.Ticket) error {
+	query := `
+		UPDATE ticketing.tickets SET
+			ticket_type_id = $1,
+			event_id = $2,
+			customer_id = $3,
+			order_id = $4,
+			qr_code_data = $5,
+			status = $6,
+			final_price = $7,
+			currency = $8,
+			tax_amount = $9,
+			attendee_name = $10,
+			attendee_email = $11,
+			attendee_phone = $12,
+			checked_in_at = $13,
+			checked_in_by = $14,
+			checkin_method = $15,
+			checkin_location = $16,
+			reserved_at = $17,
+			reserved_by = $18,
+			reservation_expires_at = $19,
+			transfer_token = $20,
+			transferred_from = $21,
+			transferred_at = $22,
+			validation_count = $23,
+			last_validated_at = $24,
+			sold_at = $25,
+			cancelled_at = $26,
+			refunded_at = $27,
+			updated_at = NOW()
+		WHERE id = $28
+		RETURNING updated_at
+	`
+
+	err := tx.QueryRow(ctx, query,
+		ticket.TicketTypeID, ticket.EventID, ticket.CustomerID, ticket.OrderID,
+		ticket.QRCodeData, ticket.Status, ticket.FinalPrice, ticket.Currency, ticket.TaxAmount,
+		ticket.AttendeeName, ticket.AttendeeEmail, ticket.AttendeePhone,
+		ticket.CheckedInAt, ticket.CheckedInBy, ticket.CheckinMethod, ticket.CheckinLocation,
+		ticket.ReservedAt, ticket.ReservedBy, ticket.ReservationExpiresAt,
+		ticket.TransferToken, ticket.TransferredFrom, ticket.TransferredAt,
+		ticket.ValidationCount, ticket.LastValidatedAt,
+		ticket.SoldAt, ticket.CancelledAt, ticket.RefundedAt,
+		ticket.ID,
+	).Scan(&ticket.UpdatedAt)
+
+	if err != nil {
+		return r.handleError(err, "failed to update ticket in transaction")
+	}
+
+	return nil
+}

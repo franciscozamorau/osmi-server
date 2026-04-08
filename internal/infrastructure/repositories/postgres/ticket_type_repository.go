@@ -1194,3 +1194,121 @@ func (r *TicketTypeRepository) ConfirmReservation(ctx context.Context, ticketTyp
 	}
 	return nil
 }
+
+// ============================================================================
+// OPERACIONES DE INVENTARIO CON TRANSACCIÓN
+// ============================================================================
+
+// ReserveTicketsTx reserva tickets usando una transacción existente
+func (r *TicketTypeRepository) ReserveTicketsTx(ctx context.Context, tx pgx.Tx, ticketTypeID int64, quantity int) error {
+	query := `
+		UPDATE ticketing.ticket_types
+		SET reserved_quantity = reserved_quantity + $1,
+			updated_at = NOW()
+		WHERE id = $2 
+		AND (total_quantity - sold_quantity - reserved_quantity) >= $1
+	`
+
+	result, err := tx.Exec(ctx, query, quantity, ticketTypeID)
+	if err != nil {
+		return r.handleError(err, "failed to reserve tickets")
+	}
+
+	// 🔥 CRÍTICO: validar filas afectadas
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("sold out - not enough tickets available")
+	}
+
+	return nil
+}
+
+// ConfirmReservationTx confirma una reserva usando una transacción existente
+func (r *TicketTypeRepository) ConfirmReservationTx(ctx context.Context, tx pgx.Tx, ticketTypeID int64, quantity int) error {
+	query := `
+		UPDATE ticketing.ticket_types
+		SET sold_quantity = sold_quantity + $1,
+			reserved_quantity = reserved_quantity - $1,
+			updated_at = NOW()
+		WHERE id = $2 AND reserved_quantity >= $1
+	`
+
+	result, err := tx.Exec(ctx, query, quantity, ticketTypeID)
+	if err != nil {
+		return r.handleError(err, "failed to confirm reservation")
+	}
+
+	// 🔥 validar filas afectadas
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("not enough reserved tickets to confirm")
+	}
+
+	return nil
+}
+
+// ReleaseReservationTx libera reservas usando una transacción existente
+func (r *TicketTypeRepository) ReleaseReservationTx(ctx context.Context, tx pgx.Tx, ticketTypeID int64, quantity int) error {
+	query := `
+		UPDATE ticketing.ticket_types
+		SET reserved_quantity = GREATEST(0, reserved_quantity - $1),
+			updated_at = NOW()
+		WHERE id = $2 AND reserved_quantity >= $1
+	`
+
+	result, err := tx.Exec(ctx, query, quantity, ticketTypeID)
+	if err != nil {
+		return r.handleError(err, "failed to release reservation")
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("not enough reserved tickets to release")
+	}
+
+	return nil
+}
+
+// ReleaseExpiredReservations libera todas las reservas expiradas
+func (r *TicketTypeRepository) ReleaseExpiredReservations(ctx context.Context) (int64, error) {
+	query := `
+        UPDATE ticketing.ticket_types tt
+        SET reserved_quantity = reserved_quantity - sub.expired_count,
+            updated_at = NOW()
+        FROM (
+            SELECT 
+                ticket_type_id,
+                COUNT(*) as expired_count
+            FROM ticketing.tickets
+            WHERE status = 'reserved' 
+              AND reservation_expires_at < NOW()
+            GROUP BY ticket_type_id
+        ) sub
+        WHERE tt.id = sub.ticket_type_id
+        RETURNING tt.id
+    `
+
+	rows, err := r.db.Query(ctx, query)
+	if err != nil {
+		return 0, r.handleError(err, "failed to release expired reservations")
+	}
+	defer rows.Close()
+
+	var updatedCount int64
+	for rows.Next() {
+		updatedCount++
+	}
+
+	// También actualizar los tickets a status 'expired'
+	updateTicketsQuery := `
+        UPDATE ticketing.tickets
+        SET status = 'expired',
+            updated_at = NOW()
+        WHERE status = 'reserved' 
+          AND reservation_expires_at < NOW()
+    `
+
+	result, err := r.db.Exec(ctx, updateTicketsQuery)
+	if err != nil {
+		return updatedCount, r.handleError(err, "failed to update expired tickets")
+	}
+
+	return result.RowsAffected(), nil
+}

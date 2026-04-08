@@ -324,3 +324,15 @@ func safeStringID(id *int64) string {
 	}
 	return strconv.FormatInt(*id, 10)
 }
+
+// ExpireReservations libera reservas expiradas
+func (h *TicketHandler) ExpireReservations(ctx context.Context, req *osmi.Empty) (*osmi.ExpireReservationsResponse, error) {
+	count, err := h.ticketService.ReleaseExpiredReservations(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	return &osmi.ExpireReservationsResponse{
+		ExpiredCount: int32(count),
+	}, nil
+}

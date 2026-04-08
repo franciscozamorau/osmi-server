@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	commondto "github.com/franciscozamorau/osmi-server/internal/api/dto/common"
@@ -111,28 +112,29 @@ func (s *TicketService) CreateTicket(ctx context.Context, req *ticketdto.CreateT
 	return ticket, nil
 }
 
-// ReserveTicket reserva un ticket - CORREGIDO (usando los campos del DTO original)
 func (s *TicketService) ReserveTicket(ctx context.Context, req *ticketdto.ReserveTicketRequest) (*entities.Ticket, error) {
-	// 🔥 Usar TicketID (que es el ID del ticket type)
 	if req.TicketID == "" {
 		return nil, errors.New("ticket_type_id is required")
 	}
 
-	// 🔥 Por ahora, reservamos 1 ticket por llamada (quantity = 1)
-	// Si necesitas quantity, habrá que agregarlo al DTO y al handler
 	quantity := 1
+
+	// 🔥 INICIAR TRANSACCIÓN
+	tx, err := s.ticketRepo.BeginTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
 
 	ticketType, err := s.ticketTypeRepo.FindByPublicID(ctx, req.TicketID)
 	if err != nil {
 		return nil, fmt.Errorf("ticket type not found: %w", err)
 	}
 
-	available, err := s.ticketTypeRepo.CheckAvailability(ctx, ticketType.ID, quantity)
+	// Reservar inventario
+	err = s.ticketTypeRepo.ReserveTicketsTx(ctx, tx, ticketType.ID, quantity)
 	if err != nil {
-		return nil, fmt.Errorf("error checking availability: %w", err)
-	}
-	if !available {
-		return nil, errors.New("ticket type not available")
+		return nil, err // 🔥 NO CONTINUAR si hay error
 	}
 
 	event, err := s.eventRepo.GetByID(ctx, ticketType.EventID)
@@ -144,20 +146,9 @@ func (s *TicketService) ReserveTicket(ctx context.Context, req *ticketdto.Reserv
 		return nil, errors.New("event does not allow reservations")
 	}
 
-	// Calcular expiración
-	duration := req.ExpiresAt.Sub(time.Now())
-	if duration <= 0 {
-		reservationDuration := time.Duration(event.ReservationDuration) * time.Minute
-		if reservationDuration <= 0 {
-			reservationDuration = 15 * time.Minute
-		}
-		duration = reservationDuration
-	}
-	reservationExpiresAt := time.Now().Add(duration)
-
+	reservationExpiresAt := time.Now().Add(15 * time.Minute)
 	now := time.Now()
 
-	// Crear ticket reservado
 	ticket := &entities.Ticket{
 		PublicID:             uuid.New().String(),
 		TicketTypeID:         ticketType.ID,
@@ -179,15 +170,15 @@ func (s *TicketService) ReserveTicket(ctx context.Context, req *ticketdto.Reserv
 		return nil, fmt.Errorf("invalid ticket: %w", err)
 	}
 
-	err = s.ticketRepo.Create(ctx, ticket)
+	// 🔥 CREAR TICKET (USANDO TX)
+	err = s.ticketRepo.CreateTx(ctx, tx, ticket)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create reservation: %w", err)
 	}
 
-	err = s.ticketTypeRepo.ReserveTickets(ctx, ticketType.ID, quantity)
-	if err != nil {
-		_ = s.ticketRepo.Delete(ctx, ticket.ID)
-		return nil, fmt.Errorf("failed to reserve tickets: %w", err)
+	// 🔥 CONFIRMAR TRANSACCIÓN
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return ticket, nil
@@ -549,37 +540,11 @@ func (s *TicketService) GetTicketStats(ctx context.Context, eventID string) (*ti
 	}, nil
 }
 
-// ReleaseExpiredReservations libera reservas expiradas
-func (s *TicketService) ReleaseExpiredReservations(ctx context.Context) (int, error) {
-	expiredTickets, err := s.ticketRepo.GetReservedExpired(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get expired reservations: %w", err)
-	}
-
-	count := 0
-	for _, ticket := range expiredTickets {
-		err = s.ticketRepo.ReleaseReservation(ctx, ticket.ID)
-		if err != nil {
-			continue
-		}
-
-		err = s.ticketTypeRepo.ReleaseReservation(ctx, ticket.TicketTypeID, 1)
-		if err != nil {
-			continue
-		}
-		count++
-	}
-
-	return count, nil
-}
-
-// generateTicketCode genera un código único para el ticket
+// generateTicketCode genera un código único para el ticket usando UUID
 func (s *TicketService) generateTicketCode(eventID, ticketTypeID int64, attempt int) string {
-	timestamp := time.Now().Unix()
-	return fmt.Sprintf("TKT-%d-%d-%d-%d", eventID, ticketTypeID, timestamp, attempt)
+	return fmt.Sprintf("TKT-%d-%d-%s", eventID, ticketTypeID, uuid.New().String()[:8])
 }
 
-// PurchaseTicket convierte una reserva en venta
 func (s *TicketService) PurchaseTicket(ctx context.Context, req *ticketdto.PurchaseTicketRequest) (*entities.Ticket, error) {
 	if req.TicketID == "" {
 		return nil, errors.New("ticket_id is required")
@@ -588,17 +553,22 @@ func (s *TicketService) PurchaseTicket(ctx context.Context, req *ticketdto.Purch
 		return nil, errors.New("customer_id is required")
 	}
 
+	// 🔥 INICIAR TRANSACCIÓN
+	tx, err := s.ticketRepo.BeginTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
 	ticket, err := s.ticketRepo.GetByPublicID(ctx, req.TicketID)
 	if err != nil {
 		return nil, fmt.Errorf("ticket not found: %w", err)
 	}
 
-	// Debe estar reservado
 	if ticket.Status != string(enums.TicketStatusReserved) {
 		return nil, errors.New("ticket is not reserved")
 	}
 
-	// Validar expiración
 	if ticket.ReservationExpiresAt != nil && time.Now().After(*ticket.ReservationExpiresAt) {
 		return nil, errors.New("reservation expired")
 	}
@@ -610,29 +580,55 @@ func (s *TicketService) PurchaseTicket(ctx context.Context, req *ticketdto.Purch
 
 	now := time.Now()
 
-	// Actualizar ticket
+	// 🔥 CONFIRMAR RESERVA EN INVENTARIO (USANDO TX)
+	err = s.ticketTypeRepo.ConfirmReservationTx(ctx, tx, ticket.TicketTypeID, 1)
+	if err != nil {
+		return nil, fmt.Errorf("failed to confirm reservation: %w", err)
+	}
+
 	ticket.Status = string(enums.TicketStatusSold)
 	ticket.CustomerID = &customer.ID
 	ticket.SoldAt = &now
-	ticket.UpdatedAt = now
-
-	// 🔥 CRÍTICO: Limpiar campos de reserva
 	ticket.ReservedAt = nil
 	ticket.ReservedBy = nil
-	ticket.ReservationExpiresAt = nil // 🔥 ESTO ES CLAVE
+	ticket.ReservationExpiresAt = nil
+	ticket.UpdatedAt = now
 
-	err = s.ticketRepo.Update(ctx, ticket)
+	// 🔥 ACTUALIZAR TICKET (USANDO TX)
+	err = s.ticketRepo.UpdateTx(ctx, tx, ticket)
 	if err != nil {
 		return nil, fmt.Errorf("failed to purchase ticket: %w", err)
 	}
 
-	// Confirmar reserva en inventario
-	err = s.ticketTypeRepo.ConfirmReservation(ctx, ticket.TicketTypeID, 1)
-	if err != nil {
-		return nil, fmt.Errorf("failed to confirm reservation: %w", err)
+	// 🔥 CONFIRMAR TRANSACCIÓN
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	go s.customerRepo.UpdateStats(ctx, customer.ID, ticket.FinalPrice)
 
 	return ticket, nil
+}
+
+// ReleaseExpiredReservations libera todas las reservas expiradas
+func (s *TicketService) ReleaseExpiredReservations(ctx context.Context) (int64, error) {
+	// 🔥 Iniciar transacción
+	tx, err := s.ticketRepo.BeginTx(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Liberar reservas expiradas
+	count, err := s.ticketTypeRepo.ReleaseExpiredReservations(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to release expired reservations: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	log.Printf("✅ Liberadas %d reservas expiradas", count)
+	return count, nil
 }

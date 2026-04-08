@@ -7,6 +7,7 @@ import (
 	commondto "github.com/franciscozamorau/osmi-server/internal/api/dto/common"
 	tickettypedto "github.com/franciscozamorau/osmi-server/internal/api/dto/ticket_type"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
+	"github.com/jackc/pgx/v5"
 )
 
 // TicketTypeRepository define operaciones para tipos de ticket
@@ -48,4 +49,11 @@ type TicketTypeRepository interface {
 	GetRevenue(ctx context.Context, ticketTypeID int64) (float64, error)
 	GetSalesVelocity(ctx context.Context, ticketTypeID int64) (float64, error)
 	ConfirmReservation(ctx context.Context, ticketTypeID int64, quantity int) error
+
+	// Operaciones con transacción
+	ReserveTicketsTx(ctx context.Context, tx pgx.Tx, ticketTypeID int64, quantity int) error
+	ConfirmReservationTx(ctx context.Context, tx pgx.Tx, ticketTypeID int64, quantity int) error
+	ReleaseReservationTx(ctx context.Context, tx pgx.Tx, ticketTypeID int64, quantity int) error
+
+	ReleaseExpiredReservations(ctx context.Context) (int64, error)
 }
