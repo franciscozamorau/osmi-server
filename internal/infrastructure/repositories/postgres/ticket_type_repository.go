@@ -1266,49 +1266,45 @@ func (r *TicketTypeRepository) ReleaseReservationTx(ctx context.Context, tx pgx.
 	return nil
 }
 
-// ReleaseExpiredReservations libera todas las reservas expiradas
+// ReleaseExpiredReservations en ticket_type_repository.go
 func (r *TicketTypeRepository) ReleaseExpiredReservations(ctx context.Context) (int64, error) {
-	query := `
-        UPDATE ticketing.ticket_types tt
-        SET reserved_quantity = reserved_quantity - sub.expired_count,
-            updated_at = NOW()
-        FROM (
-            SELECT 
-                ticket_type_id,
-                COUNT(*) as expired_count
-            FROM ticketing.tickets
-            WHERE status = 'reserved' 
-              AND reservation_expires_at < NOW()
-            GROUP BY ticket_type_id
-        ) sub
-        WHERE tt.id = sub.ticket_type_id
-        RETURNING tt.id
-    `
-
-	rows, err := r.db.Query(ctx, query)
-	if err != nil {
-		return 0, r.handleError(err, "failed to release expired reservations")
-	}
-	defer rows.Close()
-
-	var updatedCount int64
-	for rows.Next() {
-		updatedCount++
-	}
-
-	// También actualizar los tickets a status 'expired'
+	// 1. Marcar expirados
 	updateTicketsQuery := `
-        UPDATE ticketing.tickets
-        SET status = 'expired',
+        UPDATE ticketing.tickets 
+        SET status = 'expired', 
+            reservation_expires_at = NULL,
             updated_at = NOW()
         WHERE status = 'reserved' 
           AND reservation_expires_at < NOW()
     `
-
 	result, err := r.db.Exec(ctx, updateTicketsQuery)
 	if err != nil {
-		return updatedCount, r.handleError(err, "failed to update expired tickets")
+		return 0, r.handleError(err, "failed to update expired tickets")
+	}
+	expiredCount := result.RowsAffected()
+
+	if expiredCount > 0 {
+		// 2. Recalcular contadores
+		recalcQuery := `
+            UPDATE ticketing.ticket_types tt
+            SET 
+                reserved_quantity = COALESCE(r.real_reserved, 0),
+                sold_quantity = COALESCE(r.real_sold, 0)
+            FROM (
+                SELECT 
+                    ticket_type_id,
+                    COUNT(*) FILTER (WHERE status = 'reserved') AS real_reserved,
+                    COUNT(*) FILTER (WHERE status IN ('sold', 'checked_in')) AS real_sold
+                FROM ticketing.tickets
+                GROUP BY ticket_type_id
+            ) r
+            WHERE tt.id = r.ticket_type_id
+        `
+		_, err = r.db.Exec(ctx, recalcQuery)
+		if err != nil {
+			return expiredCount, r.handleError(err, "failed to recalc counters")
+		}
 	}
 
-	return result.RowsAffected(), nil
+	return expiredCount, nil
 }
