@@ -68,7 +68,7 @@ func (r *UserRepository) Find(ctx context.Context, filter *repository.UserFilter
 			preferred_language, preferred_currency, timezone,
 			mfa_enabled, mfa_secret, last_login_at, last_login_ip,
 			failed_login_attempts, locked_until,
-			is_active, is_staff, is_superuser, role,
+			is_active, is_staff, is_superuser,
 			last_active_at, created_at, updated_at
 		FROM auth.users
 		WHERE 1=1
@@ -124,12 +124,6 @@ func (r *UserRepository) Find(ctx context.Context, filter *repository.UserFilter
 		if filter.LastName != nil {
 			conditions = append(conditions, fmt.Sprintf("last_name ILIKE @last_%d", argPos))
 			args[fmt.Sprintf("last_%d", argPos)] = "%" + *filter.LastName + "%"
-			argPos++
-		}
-
-		if filter.Role != nil {
-			conditions = append(conditions, fmt.Sprintf("role = @role_%d", argPos))
-			args[fmt.Sprintf("role_%d", argPos)] = filter.Role.String()
 			argPos++
 		}
 
@@ -258,7 +252,7 @@ func (r *UserRepository) Find(ctx context.Context, filter *repository.UserFilter
 			&user.PreferredLanguage, &user.PreferredCurrency, &user.Timezone,
 			&user.MFAEnabled, &mfaSecret, &lastLoginAt, &lastLoginIP,
 			&user.FailedLoginAttempts, &lockedUntil,
-			&user.IsActive, &user.IsStaff, &user.IsSuperuser, &user.Role,
+			&user.IsActive, &user.IsStaff, &user.IsSuperuser,
 			&lastActiveAt, &user.CreatedAt, &user.UpdatedAt,
 		)
 		if err != nil {
@@ -371,15 +365,15 @@ func (r *UserRepository) Create(ctx context.Context, user *entities.User) error 
 			preferred_language, preferred_currency, timezone,
 			mfa_enabled, mfa_secret, last_login_at, last_login_ip,
 			failed_login_attempts, locked_until,
-			is_active, is_staff, is_superuser, role,
+			is_active, is_staff, is_superuser,
 			last_active_at, created_at, updated_at
 		) VALUES (
 			gen_random_uuid(), $1, $2, $3, $4,
 			$5, $6, $7, $8, $9,
 			$10, $11, $12, $13, $14, $15,
 			$16, $17, $18, $19,
-			$20, $21, $22, $23, $24, $25,
-			$26, NOW(), NOW()
+			$20, $21, $22, $23, $24,
+			$25, NOW(), NOW()
 		)
 		RETURNING id, public_uuid, created_at, updated_at
 	`
@@ -391,7 +385,7 @@ func (r *UserRepository) Create(ctx context.Context, user *entities.User) error 
 		user.PreferredLanguage, user.PreferredCurrency, user.Timezone,
 		user.MFAEnabled, user.MFASecret, user.LastLoginAt, user.LastLoginIP,
 		user.FailedLoginAttempts, user.LockedUntil,
-		user.IsActive, user.IsStaff, user.IsSuperuser, user.Role,
+		user.IsActive, user.IsStaff, user.IsSuperuser,
 		user.LastActiveAt,
 	).Scan(&user.ID, &user.PublicID, &user.CreatedAt, &user.UpdatedAt)
 
@@ -402,47 +396,35 @@ func (r *UserRepository) Create(ctx context.Context, user *entities.User) error 
 	return nil
 }
 
-// Update actualiza un usuario existente
+// Update actualiza un usuario existente por su PublicID
 func (r *UserRepository) Update(ctx context.Context, user *entities.User) error {
 	query := `
 		UPDATE auth.users SET
-			email = $1,
-			phone = $2,
-			username = $3,
-			first_name = $4,
-			last_name = $5,
-			full_name = $6,
-			avatar_url = $7,
-			date_of_birth = $8,
-			preferred_language = $9,
-			preferred_currency = $10,
-			timezone = $11,
-			mfa_enabled = $12,
-			mfa_secret = $13,
-			is_active = $14,
-			is_staff = $15,
-			is_superuser = $16,
-			role = $17,
-			last_active_at = $18,
+			username = $1,
+			first_name = $2,
+			last_name = $3,
+			full_name = $4,
+			phone = $5,
+			avatar_url = $6,
+			preferred_language = $7,
+			preferred_currency = $8,
+			timezone = $9,
 			updated_at = NOW()
-		WHERE id = $19
+		WHERE public_uuid = $10
 		RETURNING updated_at
 	`
 
 	err := r.db.QueryRow(ctx, query,
-		user.Email, user.Phone, user.Username,
-		user.FirstName, user.LastName, user.FullName, user.AvatarURL, user.DateOfBirth,
+		user.Username,
+		user.FirstName, user.LastName, user.FullName,
+		user.Phone, user.AvatarURL,
 		user.PreferredLanguage, user.PreferredCurrency, user.Timezone,
-		user.MFAEnabled, user.MFASecret,
-		user.IsActive, user.IsStaff, user.IsSuperuser, user.Role,
-		user.LastActiveAt,
-		user.ID,
+		user.PublicID,
 	).Scan(&user.UpdatedAt)
 
 	if err != nil {
 		return r.handleError(err, "failed to update user")
 	}
-
 	return nil
 }
 
@@ -772,10 +754,99 @@ func (r *UserRepository) CountActive(ctx context.Context) (int64, error) {
 
 // CountByRole cuenta usuarios por rol
 func (r *UserRepository) CountByRole(ctx context.Context, role enums.UserRole) (int64, error) {
+	// Convertir enum a flags
+	var isStaff, isSuperuser bool
+	switch role {
+	case enums.UserRoleAdmin:
+		isSuperuser = true
+		isStaff = true
+	case enums.UserRoleStaff:
+		isStaff = true
+	default:
+		// customer - ambos false
+	}
+
 	var count int64
-	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM auth.users WHERE role = $1 AND is_active = true`, role.String()).Scan(&count)
+	err := r.db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM auth.users 
+		WHERE is_active = true 
+		AND is_staff = $1 AND is_superuser = $2
+	`, isStaff, isSuperuser).Scan(&count)
 	if err != nil {
 		return 0, r.handleError(err, "failed to count users by role")
 	}
 	return count, nil
+}
+
+// List lista usuarios con paginación
+func (r *UserRepository) List(ctx context.Context, limit, offset int) ([]*entities.User, int64, error) {
+	// Contar total
+	var total int64
+	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM auth.users WHERE is_active = true`).Scan(&total)
+	if err != nil {
+		return nil, 0, r.handleError(err, "failed to count users")
+	}
+
+	query := `
+        SELECT 
+            id, public_uuid, email, phone, username, password_hash,
+            first_name, last_name, full_name, avatar_url, date_of_birth,
+            email_verified, phone_verified, verified_at,
+            preferred_language, preferred_currency, timezone,
+            mfa_enabled, mfa_secret, last_login_at, last_login_ip,
+            failed_login_attempts, locked_until,
+            is_active, is_staff, is_superuser,
+            last_active_at, created_at, updated_at
+        FROM auth.users
+        WHERE is_active = true
+        ORDER BY created_at DESC
+        LIMIT $1 OFFSET $2
+    `
+
+	rows, err := r.db.Query(ctx, query, limit, offset)
+	if err != nil {
+		return nil, 0, r.handleError(err, "failed to list users")
+	}
+	defer rows.Close()
+
+	var users []*entities.User
+	for rows.Next() {
+		var user entities.User
+		var phone, username, firstName, lastName, fullName, avatarURL *string
+		var dateOfBirth, verifiedAt, lastLoginAt, lockedUntil, lastActiveAt *time.Time
+		var lastLoginIP *string
+		var mfaSecret *string
+
+		err = rows.Scan(
+			&user.ID, &user.PublicID, &user.Email, &phone, &username, &user.PasswordHash,
+			&firstName, &lastName, &fullName, &avatarURL, &dateOfBirth,
+			&user.EmailVerified, &user.PhoneVerified, &verifiedAt,
+			&user.PreferredLanguage, &user.PreferredCurrency, &user.Timezone,
+			&user.MFAEnabled, &mfaSecret, &lastLoginAt, &lastLoginIP,
+			&user.FailedLoginAttempts, &lockedUntil,
+			&user.IsActive, &user.IsStaff, &user.IsSuperuser,
+			&lastActiveAt, &user.CreatedAt, &user.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, r.handleError(err, "failed to scan user row")
+		}
+
+		user.Phone = phone
+		user.Username = username
+		user.FirstName = firstName
+		user.LastName = lastName
+		user.FullName = fullName
+		user.AvatarURL = avatarURL
+		user.DateOfBirth = dateOfBirth
+		user.VerifiedAt = verifiedAt
+		user.LastLoginAt = lastLoginAt
+		user.LastLoginIP = lastLoginIP
+		user.LockedUntil = lockedUntil
+		user.LastActiveAt = lastActiveAt
+		user.MFASecret = mfaSecret
+
+		users = append(users, &user)
+	}
+
+	return users, total, nil
 }

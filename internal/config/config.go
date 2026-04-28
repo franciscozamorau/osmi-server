@@ -55,7 +55,7 @@ func Load() *Config {
 			Environment: getEnv("ENVIRONMENT", "development"),
 		},
 		JWT: JWTConfig{
-			SecretKey:     getEnv("JWT_SECRET_KEY", "your-secret-key-change-in-production"),
+			SecretKey:     getEnv("JWT_SECRET_KEY", ""), // 🔥 SIN DEFAULT
 			AccessExpiry:  getEnvAsDuration("JWT_ACCESS_EXPIRY", 15*time.Minute),
 			RefreshExpiry: getEnvAsDuration("JWT_REFRESH_EXPIRY", 7*24*time.Hour),
 		},

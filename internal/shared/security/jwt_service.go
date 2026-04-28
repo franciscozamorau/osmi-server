@@ -1,6 +1,7 @@
 package security
 
 import (
+	"log"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -21,11 +22,11 @@ func NewJWTService(secretKey string) *JWTService {
 }
 
 type Claims struct {
-	UserID int64 `json:"user_id"`
+	UserID string `json:"user_id"`
 	jwt.RegisteredClaims
 }
 
-func (s *JWTService) GenerateAccessToken(userID int64) (string, error) {
+func (s *JWTService) GenerateAccessToken(userID string) (string, error) {
 	claims := &Claims{
 		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -33,12 +34,11 @@ func (s *JWTService) GenerateAccessToken(userID int64) (string, error) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(s.secretKey)
 }
 
-func (s *JWTService) GenerateRefreshToken(userID int64) (string, error) {
+func (s *JWTService) GenerateRefreshToken(userID string) (string, error) {
 	claims := &Claims{
 		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -52,17 +52,24 @@ func (s *JWTService) GenerateRefreshToken(userID int64) (string, error) {
 }
 
 func (s *JWTService) ValidateToken(tokenString string) (*Claims, error) {
+	log.Printf("🔍 Validando token: %s", tokenString[:20]+"...")
+
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+		log.Printf("🔍 Método de firma: %v", token.Method)
 		return s.secretKey, nil
 	})
 
 	if err != nil {
+		log.Printf("❌ Error parseando token: %v", err)
 		return nil, err
 	}
 
-	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
-		return claims, nil
+	claims, ok := token.Claims.(*Claims)
+	if !ok || !token.Valid {
+		log.Printf("❌ Token inválido o claims incorrectos")
+		return nil, jwt.ErrSignatureInvalid
 	}
 
-	return nil, err
+	log.Printf("✅ Token válido para user_id: %s", claims.UserID)
+	return claims, nil
 }

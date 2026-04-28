@@ -59,23 +59,28 @@ func (r *TicketRepository) handleError(err error, context string) error {
 	return fmt.Errorf("%s: %w", context, err)
 }
 
-// Find busca tickets según los criterios del filtro
+// Find busca tickets según los criterios del filtro (CON JOINS)
 func (r *TicketRepository) Find(ctx context.Context, filter *repository.TicketFilter) ([]*entities.Ticket, int64, error) {
-	// Query base
 	baseQuery := `
-		SELECT 
-			id, public_uuid, ticket_type_id, event_id, customer_id, order_id,
-			code, secret_hash, qr_code_data, status, final_price, currency, tax_amount,
-			attendee_name, attendee_email, attendee_phone,
-			checked_in_at, checked_in_by, checkin_method, checkin_location,
-			reserved_at, reserved_by, reservation_expires_at,
-			transfer_token, transferred_from, transferred_at,
-			validation_count, last_validated_at,
-			sold_at, cancelled_at, refunded_at,
-			created_at, updated_at
-		FROM ticketing.tickets
-		WHERE 1=1
-	`
+    SELECT 
+        t.id, t.public_uuid, t.ticket_type_id, t.event_id, t.customer_id, t.order_id,
+        t.code, t.secret_hash, t.qr_code_data, t.status, t.final_price, t.currency, t.tax_amount,
+        t.attendee_name, t.attendee_email, t.attendee_phone,
+        t.checked_in_at, t.checked_in_by, t.checkin_method, t.checkin_location,
+        t.reserved_at, t.reserved_by, t.reservation_expires_at,
+        t.transfer_token, t.transferred_from, t.transferred_at,
+        t.validation_count, t.last_validated_at,
+        t.sold_at, t.cancelled_at, t.refunded_at,
+        t.created_at, t.updated_at,
+        COALESCE(e.name, '') as event_name,
+        COALESCE(e.venue_name, '') as location,
+        COALESCE(c.name, '') as category_name
+    FROM ticketing.tickets t
+    LEFT JOIN ticketing.events e ON t.event_id = e.id   -- 🔥 CORREGIDO: e.id, no e.public_uuid
+    LEFT JOIN ticketing.ticket_types tt ON t.ticket_type_id = tt.id
+    LEFT JOIN ticketing.categories c ON tt.event_id = c.event_id
+    WHERE 1=1
+`
 
 	countQuery := `SELECT COUNT(*) FROM ticketing.tickets WHERE 1=1`
 
@@ -268,6 +273,7 @@ func (r *TicketRepository) Find(ctx context.Context, filter *repository.TicketFi
 		var checkedInAt, reservedAt, reservationExpiresAt, soldAt, cancelledAt, refundedAt, lastValidatedAt *time.Time
 		var transferredFrom *int64
 		var transferToken *string
+		var eventName, location, categoryName string
 
 		err = rows.Scan(
 			&ticket.ID, &ticket.PublicID, &ticket.TicketTypeID, &ticket.EventID, &ticket.CustomerID, &ticket.OrderID,
@@ -279,6 +285,7 @@ func (r *TicketRepository) Find(ctx context.Context, filter *repository.TicketFi
 			&ticket.ValidationCount, &lastValidatedAt,
 			&soldAt, &cancelledAt, &refundedAt,
 			&ticket.CreatedAt, &ticket.UpdatedAt,
+			&eventName, &location, &categoryName,
 		)
 		if err != nil {
 			return nil, 0, r.handleError(err, "failed to scan ticket row")
@@ -779,25 +786,32 @@ func (r *TicketRepository) ValidateTicket(ctx context.Context, code, secretHash 
 	return &ticket, nil
 }
 
-// GetEventStats obtiene estadísticas de tickets para un evento
-func (r *TicketRepository) GetEventStats(ctx context.Context, eventID int64) (*repository.TicketStats, error) {
+// GetEventStats obtiene estadísticas de tickets para un evento (por public_uuid)
+func (r *TicketRepository) GetEventStats(ctx context.Context, eventPublicID string) (*repository.TicketStats, error) {
+	// Primero obtener el ID numérico del evento
+	var eventID int64
+	err := r.db.QueryRow(ctx, `SELECT id FROM ticketing.events WHERE public_uuid = $1`, eventPublicID).Scan(&eventID)
+	if err != nil {
+		return nil, r.handleError(err, "failed to find event")
+	}
+
 	query := `
-		SELECT 
-			COUNT(*) as total_tickets,
-			COUNT(CASE WHEN status = 'available' THEN 1 END) as available_tickets,
-			COUNT(CASE WHEN status = 'reserved' THEN 1 END) as reserved_tickets,
-			COUNT(CASE WHEN status = 'sold' THEN 1 END) as sold_tickets,
-			COUNT(CASE WHEN status = 'checked_in' THEN 1 END) as checked_in_tickets,
-			COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled_tickets,
-			COUNT(CASE WHEN status = 'refunded' THEN 1 END) as refunded_tickets,
-			COALESCE(SUM(CASE WHEN status IN ('sold', 'checked_in') THEN final_price ELSE 0 END), 0) as total_revenue,
-			COALESCE(AVG(CASE WHEN status IN ('sold', 'checked_in') THEN final_price END), 0) as avg_ticket_price
-		FROM ticketing.tickets
-		WHERE event_id = $1
-	`
+        SELECT 
+            COUNT(*) as total_tickets,
+            COUNT(CASE WHEN status = 'available' THEN 1 END) as available_tickets,
+            COUNT(CASE WHEN status = 'reserved' THEN 1 END) as reserved_tickets,
+            COUNT(CASE WHEN status = 'sold' THEN 1 END) as sold_tickets,
+            COUNT(CASE WHEN status = 'checked_in' THEN 1 END) as checked_in_tickets,
+            COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled_tickets,
+            COUNT(CASE WHEN status = 'refunded' THEN 1 END) as refunded_tickets,
+            COALESCE(SUM(CASE WHEN status IN ('sold', 'checked_in') THEN final_price ELSE 0 END), 0) as total_revenue,
+            COALESCE(AVG(CASE WHEN status IN ('sold', 'checked_in') THEN final_price END), 0) as avg_ticket_price
+        FROM ticketing.tickets
+        WHERE event_id = $1
+    `
 
 	var stats repository.TicketStats
-	err := r.db.QueryRow(ctx, query, eventID).Scan(
+	err = r.db.QueryRow(ctx, query, eventID).Scan(
 		&stats.TotalTickets,
 		&stats.AvailableTickets,
 		&stats.ReservedTickets,
@@ -967,4 +981,70 @@ func (r *TicketRepository) UpdateTx(ctx context.Context, tx pgx.Tx, ticket *enti
 	}
 
 	return nil
+}
+
+// GetByPublicIDForUpdate obtiene un ticket por su UUID con bloqueo FOR UPDATE
+func (r *TicketRepository) GetByPublicIDForUpdate(ctx context.Context, tx pgx.Tx, publicID string) (*entities.Ticket, error) {
+	query := `
+        SELECT 
+            id, public_uuid, ticket_type_id, event_id, customer_id, order_id,
+            code, secret_hash, qr_code_data, status, final_price, currency, tax_amount,
+            attendee_name, attendee_email, attendee_phone,
+            checked_in_at, checked_in_by, checkin_method, checkin_location,
+            reserved_at, reserved_by, reservation_expires_at,
+            transfer_token, transferred_from, transferred_at,
+            validation_count, last_validated_at,
+            sold_at, cancelled_at, refunded_at,
+            created_at, updated_at
+        FROM ticketing.tickets
+        WHERE public_uuid = $1
+        FOR UPDATE
+    `
+
+	var ticket entities.Ticket
+	var attendeeName, attendeeEmail, attendeePhone, qrCodeData *string
+	var checkedInBy, reservedBy *int64
+	var checkinMethod, checkinLocation *string
+	var checkedInAt, reservedAt, reservationExpiresAt, soldAt, cancelledAt, refundedAt, lastValidatedAt *time.Time
+	var transferredFrom *int64
+	var transferToken *string
+
+	err := tx.QueryRow(ctx, query, publicID).Scan(
+		&ticket.ID, &ticket.PublicID, &ticket.TicketTypeID, &ticket.EventID, &ticket.CustomerID, &ticket.OrderID,
+		&ticket.Code, &ticket.SecretHash, &qrCodeData, &ticket.Status, &ticket.FinalPrice, &ticket.Currency, &ticket.TaxAmount,
+		&attendeeName, &attendeeEmail, &attendeePhone,
+		&checkedInAt, &checkedInBy, &checkinMethod, &checkinLocation,
+		&reservedAt, &reservedBy, &reservationExpiresAt,
+		&transferToken, &transferredFrom, &ticket.TransferredAt,
+		&ticket.ValidationCount, &lastValidatedAt,
+		&soldAt, &cancelledAt, &refundedAt,
+		&ticket.CreatedAt, &ticket.UpdatedAt,
+	)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, repository.ErrTicketNotFound
+		}
+		return nil, r.handleError(err, "failed to get ticket for update")
+	}
+
+	ticket.AttendeeName = attendeeName
+	ticket.AttendeeEmail = attendeeEmail
+	ticket.AttendeePhone = attendeePhone
+	ticket.QRCodeData = qrCodeData
+	ticket.CheckedInAt = checkedInAt
+	ticket.CheckedInBy = checkedInBy
+	ticket.CheckinMethod = checkinMethod
+	ticket.CheckinLocation = checkinLocation
+	ticket.ReservedAt = reservedAt
+	ticket.ReservedBy = reservedBy
+	ticket.ReservationExpiresAt = reservationExpiresAt
+	ticket.TransferToken = transferToken
+	ticket.TransferredFrom = transferredFrom
+	ticket.LastValidatedAt = lastValidatedAt
+	ticket.SoldAt = soldAt
+	ticket.CancelledAt = cancelledAt
+	ticket.RefundedAt = refundedAt
+
+	return &ticket, nil
 }

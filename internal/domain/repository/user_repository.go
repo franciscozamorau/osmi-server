@@ -97,6 +97,9 @@ type UserRepository interface {
 	GetStats(ctx context.Context) (*UserStats, error)
 	CountActive(ctx context.Context) (int64, error)
 	CountByRole(ctx context.Context, role enums.UserRole) (int64, error)
+
+	// List lista usuarios con paginación
+	List(ctx context.Context, limit, offset int) ([]*entities.User, int64, error)
 }
 
 // UserStats representa estadísticas agregadas de usuarios

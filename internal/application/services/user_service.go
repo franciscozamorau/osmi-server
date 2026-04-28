@@ -5,12 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
-	userdto "github.com/franciscozamorau/osmi-server/internal/api/dto/user" // ← CAMBIADO
+	userdto "github.com/franciscozamorau/osmi-server/internal/api/dto/user"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
-	"github.com/franciscozamorau/osmi-server/internal/domain/enums"
 	"github.com/franciscozamorau/osmi-server/internal/domain/repository"
+	"github.com/franciscozamorau/osmi-server/internal/infrastructure/cache"
 	"github.com/franciscozamorau/osmi-server/internal/shared/security"
 	"github.com/google/uuid"
 )
@@ -21,6 +22,7 @@ type UserService struct {
 	sessionRepo  repository.SessionRepository
 	hasher       *security.PasswordHasher
 	jwtService   *security.JWTService
+	redisClient  *cache.RedisClient
 }
 
 func NewUserService(
@@ -29,6 +31,7 @@ func NewUserService(
 	sessionRepo repository.SessionRepository,
 	hasher *security.PasswordHasher,
 	jwtService *security.JWTService,
+	redisClient *cache.RedisClient,
 ) *UserService {
 	return &UserService{
 		userRepo:     userRepo,
@@ -36,51 +39,73 @@ func NewUserService(
 		sessionRepo:  sessionRepo,
 		hasher:       hasher,
 		jwtService:   jwtService,
+		redisClient:  redisClient,
 	}
 }
 
-// Register registra un nuevo usuario en el sistema
+// Register registra un nuevo usuario
 func (s *UserService) Register(ctx context.Context, req *userdto.CreateUserRequest) (*entities.User, error) {
-	// Validar request
 	if err := s.validateCreateUserRequest(req); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 
-	// Verificar si el email ya existe
 	existing, err := s.userRepo.GetByEmail(ctx, req.Email)
 	if err == nil && existing != nil {
 		return nil, errors.New("email already registered")
 	}
-	// Si el error es diferente a "not found", algo salió mal
 	if err != nil && !errors.Is(err, repository.ErrUserNotFound) {
 		return nil, fmt.Errorf("failed to check email existence: %w", err)
 	}
 
-	// Hashear contraseña
 	passwordHash, err := s.hasher.HashPassword(req.Password)
 	if err != nil {
 		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	// Crear usuario
 	now := time.Now()
+
+	var phone *string
+	if req.Phone != "" && req.Phone != "null" {
+		phone = &req.Phone
+	}
+
+	username := req.Username
+	if username == "" {
+		username = req.Email
+	}
+
 	user := &entities.User{
 		PublicID:          uuid.New().String(),
 		Email:             req.Email,
-		Phone:             &req.Phone,
-		Username:          &req.Username,
+		Phone:             phone,
+		Username:          &username,
 		PasswordHash:      passwordHash,
-		FirstName:         &req.FirstName,
-		LastName:          &req.LastName,
-		PreferredLanguage: req.PreferredLanguage,
-		PreferredCurrency: req.PreferredCurrency,
-		Timezone:          req.Timezone,
-		Role:              string(enums.UserRoleCustomer),
 		IsActive:          true,
-		LastActiveAt:      nil,
+		EmailVerified:     false,
+		PhoneVerified:     false,
+		PreferredLanguage: "es",
+		PreferredCurrency: "MXN",
+		Timezone:          "UTC",
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}
+
+	if req.FirstName != "" {
+		user.FirstName = &req.FirstName
+	}
+	if req.LastName != "" {
+		user.LastName = &req.LastName
+	}
+	if req.FirstName != "" && req.LastName != "" {
+		fullName := req.FirstName + " " + req.LastName
+		user.FullName = &fullName
+	}
+
+	role := req.Role
+	if role == "" {
+		role = "customer"
+	}
+	user.SetRole(role)
 
 	if req.DateOfBirth != "" {
 		dob, err := time.Parse("2006-01-02", req.DateOfBirth)
@@ -89,98 +114,87 @@ func (s *UserService) Register(ctx context.Context, req *userdto.CreateUserReque
 		}
 	}
 
-	if req.FirstName != "" && req.LastName != "" {
-		fullName := req.FirstName + " " + req.LastName
-		user.FullName = &fullName
-	}
-
-	// Crear usuario en base de datos
 	if err := s.userRepo.Create(ctx, user); err != nil {
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
-	// Crear cliente asociado (siempre existe un cliente para cada usuario)
 	customer := &entities.Customer{
 		PublicID:  uuid.New().String(),
 		UserID:    &user.ID,
-		FullName:  *user.FullName,
+		FullName:  user.GetDisplayName(),
 		Email:     user.Email,
-		Phone:     user.Phone,
+		Phone:     phone,
 		IsActive:  true,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
 
 	if err := s.customerRepo.Create(ctx, customer); err != nil {
-		// Rollback: eliminar usuario creado
-		_ = s.userRepo.Delete(ctx, user.ID)
-		return nil, fmt.Errorf("failed to create customer profile: %w", err)
+		log.Printf("Warning: failed to create customer profile for user %s: %v", user.PublicID, err)
 	}
 
 	return user, nil
 }
 
-// Login autentica un usuario y crea una sesión
-func (s *UserService) Login(ctx context.Context, req *userdto.LoginRequest) (*entities.Session, *entities.User, error) {
-	// Validar request
-	if req.Email == "" || req.Password == "" {
-		return nil, nil, errors.New("email and password are required")
+// AuthResponse es la estructura que devuelve autenticación
+type AuthResponse struct {
+	PublicID  string
+	Email     string
+	Username  *string
+	Role      string
+	CreatedAt time.Time
+}
+
+// Authenticate verifica credenciales y devuelve el usuario autenticado
+func (s *UserService) Authenticate(ctx context.Context, email, password string) (*AuthResponse, error) {
+	log.Printf("🔐 Authenticate llamado con email: %s, password: %s", email, password)
+
+	if email == "" || password == "" {
+		return nil, errors.New("email and password are required")
 	}
 
-	// Buscar usuario por email
-	user, err := s.userRepo.GetByEmail(ctx, req.Email)
+	user, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, repository.ErrUserNotFound) {
-			return nil, nil, errors.New("invalid credentials")
+			return nil, errors.New("invalid credentials")
 		}
-		return nil, nil, fmt.Errorf("failed to find user: %w", err)
+		return nil, fmt.Errorf("failed to find user: %w", err)
 	}
 
-	// Verificar si el usuario está bloqueado
 	if user.LockedUntil != nil && user.LockedUntil.After(time.Now()) {
-		return nil, nil, errors.New("account is locked")
+		return nil, errors.New("account is locked")
 	}
 
-	// Verificar si el usuario está activo
 	if !user.IsActive {
-		return nil, nil, errors.New("account is inactive")
+		return nil, errors.New("account is inactive")
 	}
 
-	// Verificar contraseña
-	if !s.hasher.VerifyPassword(user.PasswordHash, req.Password) {
-		// Incrementar contador de intentos fallidos
+	if !s.hasher.VerifyPassword(user.PasswordHash, password) {
 		user.FailedLoginAttempts++
 		user.UpdatedAt = time.Now()
-		_ = s.userRepo.Update(ctx, user) // Ignoramos error, no crítico
-		return nil, nil, errors.New("invalid credentials")
+		_ = s.userRepo.Update(ctx, user)
+		return nil, errors.New("invalid credentials")
 	}
 
-	// Resetear contador de intentos fallidos
 	user.FailedLoginAttempts = 0
 	user.UpdatedAt = time.Now()
-	if err := s.userRepo.Update(ctx, user); err != nil {
-		// No es crítico, continuamos
+	_ = s.userRepo.Update(ctx, user)
+	_ = s.userRepo.UpdateLastLogin(ctx, user.ID, "")
+
+	role := "customer"
+	if user.IsSuperuser {
+		role = "admin"
+	} else if user.IsStaff {
+		role = "staff"
 	}
 
-	// Actualizar último login (si el método existe en el repositorio)
-	_ = s.userRepo.UpdateLastLogin(ctx, user.ID, "") // Ignoramos error
-
-	// Crear sesión
-	session := &entities.Session{
-		SessionID:        uuid.New().String(),
-		UserID:           user.ID,
-		RefreshTokenHash: uuid.New().String(),
-		IsValid:          true,
-		ExpiresAt:        time.Now().Add(7 * 24 * time.Hour), // 7 días
-		CreatedAt:        time.Now(),
-		UpdatedAt:        time.Now(),
-	}
-
-	if err := s.sessionRepo.Create(ctx, session); err != nil {
-		return nil, nil, fmt.Errorf("failed to create session: %w", err)
-	}
-
-	return session, user, nil
+	return &AuthResponse{
+		PublicID:  user.PublicID,
+		Email:     user.Email,
+		Username:  user.Username,
+		Role:      role,
+		CreatedAt: user.CreatedAt,
+	}, nil
 }
 
 // GetProfile obtiene el perfil de un usuario
@@ -205,7 +219,6 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req *user
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
-	// Actualizar campos
 	if req.FirstName != nil {
 		user.FirstName = req.FirstName
 	}
@@ -257,18 +270,15 @@ func (s *UserService) ChangePassword(ctx context.Context, userID int64, req *use
 		return fmt.Errorf("failed to get user: %w", err)
 	}
 
-	// Verificar contraseña actual
 	if !s.hasher.VerifyPassword(user.PasswordHash, req.CurrentPassword) {
 		return errors.New("current password is incorrect")
 	}
 
-	// Hashear nueva contraseña
 	newHash, err := s.hasher.HashPassword(req.NewPassword)
 	if err != nil {
 		return fmt.Errorf("failed to hash new password: %w", err)
 	}
 
-	// Actualizar contraseña
 	user.PasswordHash = newHash
 	user.UpdatedAt = time.Now()
 
@@ -279,12 +289,45 @@ func (s *UserService) ChangePassword(ctx context.Context, userID int64, req *use
 	return nil
 }
 
-// Logout cierra una sesión específica
-func (s *UserService) Logout(ctx context.Context, sessionID string) error {
-	if err := s.sessionRepo.Invalidate(ctx, sessionID); err != nil {
-		return fmt.Errorf("failed to logout: %w", err)
+// Logout invalida un token (lo agrega a blacklist en Redis)
+func (s *UserService) Logout(ctx context.Context, token string) error {
+	if token == "" {
+		return errors.New("token is required")
 	}
+
+	claims, err := s.jwtService.ValidateToken(token)
+	if err != nil {
+		return errors.New("invalid token")
+	}
+
+	expiresAt := claims.ExpiresAt.Time
+	ttl := time.Until(expiresAt)
+	if ttl <= 0 {
+		return errors.New("token already expired")
+	}
+
+	if err := s.redisClient.AddToBlacklist(ctx, token, ttl); err != nil {
+		return fmt.Errorf("failed to blacklist token: %w", err)
+	}
+
+	log.Printf("🔐 Token blacklisted para user_id: %s, expira en: %v", claims.UserID, ttl)
 	return nil
+}
+
+// RefreshToken genera un nuevo token
+func (s *UserService) RefreshToken(ctx context.Context, oldToken string) (string, time.Time, error) {
+	claims, err := s.jwtService.ValidateToken(oldToken)
+	if err != nil {
+		return "", time.Time{}, errors.New("invalid token")
+	}
+
+	expiresAt := time.Now().Add(24 * time.Hour)
+	newToken, err := s.jwtService.GenerateAccessToken(claims.UserID)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+
+	return newToken, expiresAt, nil
 }
 
 // LogoutAll cierra todas las sesiones de un usuario
@@ -305,11 +348,8 @@ func (s *UserService) DeleteAccount(ctx context.Context, userID int64) error {
 		return fmt.Errorf("failed to get user: %w", err)
 	}
 
-	// Marcar usuario como inactivo
 	user.IsActive = false
 	user.UpdatedAt = time.Now()
-
-	// Invalidar todas las sesiones
 	_ = s.sessionRepo.InvalidateAllForUser(ctx, userID)
 
 	if err := s.userRepo.Update(ctx, user); err != nil {
@@ -318,10 +358,6 @@ func (s *UserService) DeleteAccount(ctx context.Context, userID int64) error {
 
 	return nil
 }
-
-// ============================================================================
-// FUNCIONES HELPER PRIVADAS
-// ============================================================================
 
 // validateCreateUserRequest valida los datos de registro
 func (s *UserService) validateCreateUserRequest(req *userdto.CreateUserRequest) error {
@@ -341,4 +377,72 @@ func (s *UserService) validateCreateUserRequest(req *userdto.CreateUserRequest) 
 		return errors.New("username must be at least 3 characters")
 	}
 	return nil
+}
+
+// GetUserByPublicID obtiene un usuario por su PublicID (UUID)
+func (s *UserService) GetUserByPublicID(ctx context.Context, publicID string) (*entities.User, error) {
+	user, err := s.userRepo.GetByPublicID(ctx, publicID)
+	if err != nil {
+		if errors.Is(err, repository.ErrUserNotFound) {
+			return nil, errors.New("user not found")
+		}
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+	return user, nil
+}
+
+// ListUsers lista todos los usuarios activos
+func (s *UserService) ListUsers(ctx context.Context, page, pageSize int) ([]*entities.User, int64, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
+
+	return s.userRepo.List(ctx, pageSize, offset)
+}
+
+// UpdateUser actualiza un usuario existente
+func (s *UserService) UpdateUser(ctx context.Context, publicID string, req *userdto.UpdateUserRequest) (*entities.User, error) {
+	log.Printf("📝 UpdateUser service: publicID=%s", publicID)
+
+	user, err := s.userRepo.GetByPublicID(ctx, publicID)
+	if err != nil {
+		if errors.Is(err, repository.ErrUserNotFound) {
+			return nil, errors.New("user not found")
+		}
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if req.FirstName != nil && *req.FirstName != "" {
+		log.Printf("📝 Actualizando username de '%s' a '%s'", *user.Username, *req.FirstName)
+		user.Username = req.FirstName
+	}
+
+	if req.Phone != nil {
+		user.Phone = req.Phone
+	}
+	if req.AvatarURL != nil {
+		user.AvatarURL = req.AvatarURL
+	}
+	if req.PreferredLanguage != nil {
+		user.PreferredLanguage = *req.PreferredLanguage
+	}
+	if req.PreferredCurrency != nil {
+		user.PreferredCurrency = *req.PreferredCurrency
+	}
+	if req.Timezone != nil {
+		user.Timezone = *req.Timezone
+	}
+
+	user.UpdatedAt = time.Now()
+
+	if err := s.userRepo.Update(ctx, user); err != nil {
+		return nil, fmt.Errorf("failed to update user: %w", err)
+	}
+
+	log.Printf("✅ Usuario actualizado correctamente")
+	return user, nil
 }

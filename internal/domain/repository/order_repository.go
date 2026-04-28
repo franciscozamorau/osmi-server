@@ -7,6 +7,7 @@ import (
 	commondto "github.com/franciscozamorau/osmi-server/internal/api/dto/common"
 	orderdto "github.com/franciscozamorau/osmi-server/internal/api/dto/order"
 	"github.com/franciscozamorau/osmi-server/internal/domain/entities"
+	"github.com/jackc/pgx/v5"
 )
 
 // OrderRepository define operaciones para órdenes
@@ -14,6 +15,10 @@ type OrderRepository interface {
 	// CRUD básico
 	Create(ctx context.Context, order *entities.Order) error
 	FindByID(ctx context.Context, id int64) (*entities.Order, error)
+	GetByPublicID(ctx context.Context, publicID string) (*entities.Order, error)
+	GetByCustomerID(ctx context.Context, customerID int64) ([]*entities.Order, error)
+	AddItem(ctx context.Context, item *entities.OrderItem) error
+	GetItems(ctx context.Context, orderID int64) ([]*entities.OrderItem, error)
 	FindByPublicID(ctx context.Context, publicID string) (*entities.Order, error)
 	Update(ctx context.Context, order *entities.Order) error
 	Delete(ctx context.Context, id int64) error
@@ -47,4 +52,6 @@ type OrderRepository interface {
 	GetDailyRevenue(ctx context.Context, days int) ([]*orderdto.DailyRevenue, error)
 	GetAverageOrderValue(ctx context.Context) (float64, error)
 	GetConversionRate(ctx context.Context) (float64, error)
+
+	FindByPublicIDForUpdate(ctx context.Context, tx pgx.Tx, publicID string) (*entities.Order, error)
 }

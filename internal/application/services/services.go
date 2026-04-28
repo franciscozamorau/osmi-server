@@ -385,7 +385,6 @@ func (s *Server) CreateUser(ctx context.Context, req *osmi.CreateUserRequest) (*
 		Email:               strings.TrimSpace(req.Email),
 		Username:            &req.Name,
 		PasswordHash:        hashPassword(req.Password),
-		Role:                role,
 		IsActive:            true,
 		EmailVerified:       false,
 		PhoneVerified:       false,
@@ -395,6 +394,17 @@ func (s *Server) CreateUser(ctx context.Context, req *osmi.CreateUserRequest) (*
 		FailedLoginAttempts: 0,
 		CreatedAt:           time.Now(),
 		UpdatedAt:           time.Now(),
+	}
+
+	// Configurar flags de rol
+	switch role {
+	case "admin":
+		user.IsSuperuser = true
+		user.IsStaff = true
+	case "staff":
+		user.IsStaff = true
+	default:
+		// customer - ambos false
 	}
 
 	err := s.UserRepo.Create(ctx, user)
@@ -409,12 +419,20 @@ func (s *Server) CreateUser(ctx context.Context, req *osmi.CreateUserRequest) (*
 	log.Printf("User created successfully: %s (ID: %d, PublicID: %s)",
 		req.Email, user.ID, user.PublicID)
 
+	// Obtener el nombre del rol para la respuesta
+	roleName := "customer"
+	if user.IsSuperuser {
+		roleName = "admin"
+	} else if user.IsStaff {
+		roleName = "staff"
+	}
+
 	return &osmi.UserResponse{
 		UserId:    user.PublicID,
 		Status:    "active",
 		Name:      *user.Username,
 		Email:     user.Email,
-		Role:      user.Role,
+		Role:      roleName,
 		CreatedAt: timestamppb.New(user.CreatedAt),
 	}, nil
 }
@@ -433,12 +451,19 @@ func (s *Server) GetUser(ctx context.Context, req *osmi.GetUserRequest) (*osmi.U
 		return nil, fmt.Errorf("user not found with id: %s", req.UserId)
 	}
 
+	roleName := "customer"
+	if user.IsSuperuser {
+		roleName = "admin"
+	} else if user.IsStaff {
+		roleName = "staff"
+	}
+
 	return &osmi.UserResponse{
 		UserId:    user.PublicID,
 		Status:    "active",
 		Name:      *user.Username,
 		Email:     user.Email,
-		Role:      user.Role,
+		Role:      roleName,
 		CreatedAt: timestamppb.New(user.CreatedAt),
 	}, nil
 }

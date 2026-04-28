@@ -6,7 +6,7 @@ import (
 )
 
 // User representa un usuario del sistema
-// Mapea exactamente la tabla auth.users
+// Mapea exactamente la tabla auth.users (SIN columna role)
 type User struct {
 	ID           int64   `json:"id" db:"id"`
 	PublicID     string  `json:"public_id" db:"public_uuid"`
@@ -15,9 +15,7 @@ type User struct {
 	Username     *string `json:"username,omitempty" db:"username"`
 	PasswordHash string  `json:"-" db:"password_hash"`
 
-	// NOTA: Role no existe en la tabla auth.users, se deriva de is_staff y is_superuser
-	// Lo mantenemos para compatibilidad pero no tiene tag db
-	Role string `json:"role,omitempty"`
+	// 🔥 NOTA: NO hay campo Role. Se determina por IsStaff e IsSuperuser
 
 	FirstName   *string    `json:"first_name,omitempty" db:"first_name"`
 	LastName    *string    `json:"last_name,omitempty" db:"last_name"`
@@ -37,7 +35,7 @@ type User struct {
 	MFASecret   *string    `json:"-" db:"mfa_secret"`
 	LastLoginAt *time.Time `json:"last_login_at,omitempty" db:"last_login_at"`
 	LastLoginIP *string    `json:"last_login_ip,omitempty" db:"last_login_ip"`
-	// CORREGIDO: failed_login_attempts es INTEGER, usamos int
+
 	FailedLoginAttempts int        `json:"failed_login_attempts" db:"failed_login_attempts"`
 	LockedUntil         *time.Time `json:"locked_until,omitempty" db:"locked_until"`
 
@@ -75,7 +73,36 @@ type UserPublic struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// Métodos de utilidad para User
+// ============================================================================
+// MÉTODOS DE UTILIDAD PARA USER
+// ============================================================================
+
+// GetRole obtiene el rol del usuario basado en sus permisos
+func (u *User) GetRole() string {
+	switch {
+	case u.IsSuperuser:
+		return "admin"
+	case u.IsStaff:
+		return "staff"
+	default:
+		return "customer"
+	}
+}
+
+// SetRole configura los flags según el rol recibido
+func (u *User) SetRole(role string) {
+	switch role {
+	case "admin":
+		u.IsSuperuser = true
+		u.IsStaff = true
+	case "staff":
+		u.IsStaff = true
+		u.IsSuperuser = false
+	default: // customer
+		u.IsStaff = false
+		u.IsSuperuser = false
+	}
+}
 
 // IsLocked verifica si la cuenta está bloqueada
 func (u *User) IsLocked() bool {
@@ -98,18 +125,6 @@ func (u *User) IsAdmin() bool {
 // IsStaffUser verifica si el usuario es staff
 func (u *User) IsStaffUser() bool {
 	return u.IsStaff || u.IsSuperuser
-}
-
-// GetRole obtiene el rol del usuario basado en sus permisos
-func (u *User) GetRole() string {
-	switch {
-	case u.IsSuperuser:
-		return "admin"
-	case u.IsStaff:
-		return "staff"
-	default:
-		return "user"
-	}
 }
 
 // GetDisplayName obtiene el nombre para mostrar

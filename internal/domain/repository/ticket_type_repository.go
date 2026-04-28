@@ -56,4 +56,5 @@ type TicketTypeRepository interface {
 	ReleaseReservationTx(ctx context.Context, tx pgx.Tx, ticketTypeID int64, quantity int) error
 
 	ReleaseExpiredReservations(ctx context.Context) (int64, error)
+	ReserveTicketWithLock(ctx context.Context, tx pgx.Tx, ticketTypeID int64, quantity int) error
 }

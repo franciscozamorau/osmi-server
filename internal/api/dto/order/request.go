@@ -34,3 +34,7 @@ type ProcessPaymentRequest struct {
 	PaymentMethodDetails map[string]interface{} `json:"payment_method_details,omitempty"`
 	SaveCard             bool                   `json:"save_card,omitempty"`
 }
+
+type UpdateOrderStatusRequest struct {
+	Status string `json:"status" validate:"required,oneof=pending completed cancelled failed"`
+}

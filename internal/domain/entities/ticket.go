@@ -53,6 +53,10 @@ type Ticket struct {
 	RefundedAt  *time.Time `json:"refunded_at,omitempty" db:"refunded_at"`
 	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at" db:"updated_at"`
+
+	EventName    string `json:"event_name,omitempty"`
+	Location     string `json:"location,omitempty"`
+	CategoryName string `json:"category_name,omitempty"`
 }
 
 // Métodos de utilidad para Ticket

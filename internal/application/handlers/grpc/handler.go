@@ -18,6 +18,7 @@ type Handler struct {
 	eventHandler      *EventHandler
 	categoryHandler   *CategoryHandler
 	ticketTypeHandler *TicketTypeHandler
+	orderHandler      *OrderHandler
 }
 
 func NewHandler(
@@ -27,6 +28,8 @@ func NewHandler(
 	eventHandler *EventHandler,
 	categoryHandler *CategoryHandler,
 	ticketTypeHandler *TicketTypeHandler,
+	orderHandler *OrderHandler,
+
 ) *Handler {
 	return &Handler{
 		customerHandler:   customerHandler,
@@ -35,6 +38,7 @@ func NewHandler(
 		eventHandler:      eventHandler,
 		categoryHandler:   categoryHandler,
 		ticketTypeHandler: ticketTypeHandler,
+		orderHandler:      orderHandler,
 	}
 }
 
@@ -148,7 +152,6 @@ func (h *Handler) CreateUser(ctx context.Context, req *osmi.CreateUserRequest) (
 	return h.userHandler.CreateUser(ctx, req)
 }
 
-// CORREGIDO: Ahora usa GetUserRequest
 func (h *Handler) GetUser(ctx context.Context, req *osmi.GetUserRequest) (*osmi.UserResponse, error) {
 	return h.userHandler.GetUser(ctx, req)
 }
@@ -171,6 +174,10 @@ func (h *Handler) Logout(ctx context.Context, req *osmi.LogoutRequest) (*osmi.Em
 
 func (h *Handler) RefreshToken(ctx context.Context, req *osmi.RefreshTokenRequest) (*osmi.RefreshTokenResponse, error) {
 	return h.userHandler.RefreshToken(ctx, req)
+}
+
+func (h *Handler) ListUsers(ctx context.Context, req *osmi.ListUsersRequest) (*osmi.UserListResponse, error) {
+	return h.userHandler.ListUsers(ctx, req)
 }
 
 // ============ EVENTS ============
@@ -201,4 +208,9 @@ func (h *Handler) HealthCheck(ctx context.Context, req *osmi.Empty) (*osmi.Healt
 		Version:   "1.0.0",
 		Timestamp: timestamppb.Now(),
 	}, nil
+}
+
+// ============ order ============
+func (h *Handler) CreateOrder(ctx context.Context, req *osmi.CreateOrderRequest) (*osmi.OrderResponse, error) {
+	return h.orderHandler.CreateOrder(ctx, req)
 }

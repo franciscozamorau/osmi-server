@@ -102,6 +102,8 @@ type TicketRepository interface {
 
 	// --- Operaciones Específicas de Negocio ---
 	ValidateTicket(ctx context.Context, code, secretHash string) (*entities.Ticket, error)
-	GetEventStats(ctx context.Context, eventID int64) (*TicketStats, error)
+	GetEventStats(ctx context.Context, eventPublicID string) (*TicketStats, error)
 	GetReservedExpired(ctx context.Context) ([]*entities.Ticket, error)
+
+	GetByPublicIDForUpdate(ctx context.Context, tx pgx.Tx, publicID string) (*entities.Ticket, error)
 }

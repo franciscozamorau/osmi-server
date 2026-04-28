@@ -1308,3 +1308,33 @@ func (r *TicketTypeRepository) ReleaseExpiredReservations(ctx context.Context) (
 
 	return expiredCount, nil
 }
+
+// ReserveTicketWithLock reserva un ticket con bloqueo FOR UPDATE
+func (r *TicketTypeRepository) ReserveTicketWithLock(ctx context.Context, tx pgx.Tx, ticketTypeID int64, quantity int) error {
+	// Primero, bloquear la fila
+	var available int
+	query := `
+        SELECT (total_quantity - sold_quantity - reserved_quantity)
+        FROM ticketing.ticket_types
+        WHERE id = $1
+        FOR UPDATE
+    `
+	err := tx.QueryRow(ctx, query, ticketTypeID).Scan(&available)
+	if err != nil {
+		return r.handleError(err, "failed to lock ticket type")
+	}
+
+	if available < quantity {
+		return fmt.Errorf("not enough tickets available: only %d left", available)
+	}
+
+	// Actualizar reserved_quantity
+	updateQuery := `
+        UPDATE ticketing.ticket_types
+        SET reserved_quantity = reserved_quantity + $1,
+            updated_at = NOW()
+        WHERE id = $2
+    `
+	_, err = tx.Exec(ctx, updateQuery, quantity, ticketTypeID)
+	return err
+}

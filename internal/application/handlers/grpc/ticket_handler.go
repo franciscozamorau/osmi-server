@@ -303,11 +303,11 @@ func (h *TicketHandler) ticketToProto(ticket *entities.Ticket) *osmi.TicketRespo
 		Status:        ticket.Status,
 		Code:          ticket.Code,
 		QrCodeUrl:     helpers.SafeStringPtr(ticket.QRCodeData),
-		EventName:     "",
+		EventName:     ticket.EventName, // 🔥 NUEVO
 		EventDate:     "",
-		Location:      "",
+		Location:      ticket.Location, // 🔥 NUEVO
 		Price:         ticket.FinalPrice,
-		CategoryName:  "",
+		CategoryName:  ticket.CategoryName, // 🔥 NUEVO
 		SeatNumber:    "",
 		CustomerName:  "",
 		CustomerEmail: "",

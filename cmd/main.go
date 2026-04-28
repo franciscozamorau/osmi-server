@@ -8,14 +8,16 @@ import (
 	"net/http"
 	"time"
 
-	_ "github.com/jackc/pgx/v5/stdlib" // Mantenemos esto para el driver
+	_ "github.com/jackc/pgx/v5/stdlib"
 
 	pb "github.com/franciscozamorau/osmi-protobuf/gen/pb"
 	handlersgrpc "github.com/franciscozamorau/osmi-server/internal/application/handlers/grpc"
 	"github.com/franciscozamorau/osmi-server/internal/application/services"
 	"github.com/franciscozamorau/osmi-server/internal/config"
 	"github.com/franciscozamorau/osmi-server/internal/database"
+	"github.com/franciscozamorau/osmi-server/internal/infrastructure/cache"
 	"github.com/franciscozamorau/osmi-server/internal/infrastructure/repositories/postgres"
+	"github.com/franciscozamorau/osmi-server/internal/shared/security"
 	"github.com/joho/godotenv"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -25,21 +27,18 @@ func main() {
 	log.Println("🚀 OSMI Server - ARQUITECTURA COMPLETA")
 	log.Println("=======================================")
 
-	// Cargar configuración
 	cfg := config.Load()
 	_ = godotenv.Load()
 
-	// Inicializar base de datos con pgxpool
 	if err := database.Init(); err != nil {
 		log.Fatalf("❌ Failed to initialize database pool: %v", err)
 	}
 	defer database.Close()
 
 	// ================================================
-	// REPOSITORIOS - TODOS DEBEN ESTAR MIGRADOS A pgxpool
+	// REPOSITORIOS
 	// ================================================
 
-	// Estos constructores DEBEN aceptar *pgxpool.Pool
 	customerRepo := postgres.NewCustomerRepository(database.Pool)
 	eventRepo := postgres.NewEventRepository(database.Pool)
 	userRepo := postgres.NewUserRepository(database.Pool)
@@ -48,10 +47,32 @@ func main() {
 	ticketTypeRepo := postgres.NewTicketTypeRepository(database.Pool)
 	organizerRepo := postgres.NewOrganizerRepository(database.Pool)
 	venueRepo := postgres.NewVenueRepository(database.Pool)
+	orderRepo := postgres.NewOrderRepository(database.Pool)
 
-	log.Println("✅ Repositorios creados (todos con pgxpool)")
+	// ================================================
+	// SERVICIOS DE SEGURIDAD
+	// ================================================
 
-	// Crear servicios
+	hasher := security.NewPasswordHasher()
+
+	if cfg.JWT.SecretKey == "" {
+		log.Fatal("❌ JWT_SECRET_KEY is required in .env file")
+	}
+
+	jwtService := security.NewJWTService(cfg.JWT.SecretKey)
+
+	// ================================================
+	// SERVICIOS
+	// ================================================
+
+	// Crear cliente Redis
+	redisClient, err := cache.NewRedisClient(cfg.Redis.URL, cfg.Redis.Password, cfg.Redis.DB)
+	if err != nil {
+		log.Printf("⚠️ Redis not available: %v", err)
+	} else {
+		log.Println("✅ Redis connected")
+	}
+
 	customerService := services.NewCustomerService(customerRepo)
 	ticketService := services.NewTicketService(
 		ticketRepo,
@@ -71,21 +92,25 @@ func main() {
 	userService := services.NewUserService(
 		userRepo,
 		customerRepo,
-		nil, nil, nil,
+		nil,
+		hasher,
+		jwtService,
+		redisClient,
 	)
 	categoryService := services.NewCategoryService(categoryRepo, eventRepo)
+	orderService := services.NewOrderService(orderRepo, customerRepo, ticketTypeRepo, ticketRepo)
 
-	log.Println("✅ Servicios creados")
+	// ================================================
+	// HANDLERS
+	// ================================================
 
-	// Crear handlers
 	customerHandler := handlersgrpc.NewCustomerHandler(customerService)
 	ticketHandler := handlersgrpc.NewTicketHandler(ticketService)
 	eventHandler := handlersgrpc.NewEventHandler(eventService)
-	userHandler := handlersgrpc.NewUserHandler(userService, "tu-secreto-jwt-aqui")
+	userHandler := handlersgrpc.NewUserHandler(userService, cfg.JWT.SecretKey)
 	categoryHandler := handlersgrpc.NewCategoryHandler(categoryService)
 	ticketTypeHandler := handlersgrpc.NewTicketTypeHandler(ticketTypeService)
-
-	log.Println("✅ Handlers específicos creados")
+	orderHandler := handlersgrpc.NewOrderHandler(orderService)
 
 	// Handler unificado
 	handler := handlersgrpc.NewHandler(
@@ -95,9 +120,8 @@ func main() {
 		eventHandler,
 		categoryHandler,
 		ticketTypeHandler,
+		orderHandler,
 	)
-
-	log.Println("✅ Handler unificado creado")
 
 	// Iniciar servidor gRPC
 	startServer(handler, cfg.GRPCPort)
@@ -110,7 +134,6 @@ func startServer(handler *handlersgrpc.Handler, port string) {
 	pb.RegisterOsmiServiceServer(server, handler)
 	reflection.Register(server)
 
-	// Health check HTTP
 	go func() {
 		http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -135,7 +158,7 @@ func startServer(handler *handlersgrpc.Handler, port string) {
 		log.Fatalf("❌ Error escuchando: %v", err)
 	}
 
-	log.Printf("🚀 gRPC server en %s", address)
+	log.Printf("🚀gRPC server en %s", address)
 
 	if err := server.Serve(lis); err != nil {
 		log.Fatalf("❌ Error sirviendo: %v", err)

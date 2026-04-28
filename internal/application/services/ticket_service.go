@@ -112,6 +112,7 @@ func (s *TicketService) CreateTicket(ctx context.Context, req *ticketdto.CreateT
 	return ticket, nil
 }
 
+// ReserveTicket reserva un ticket con bloqueo FOR UPDATE
 func (s *TicketService) ReserveTicket(ctx context.Context, req *ticketdto.ReserveTicketRequest) (*entities.Ticket, error) {
 	if req.TicketID == "" {
 		return nil, errors.New("ticket_type_id is required")
@@ -119,7 +120,7 @@ func (s *TicketService) ReserveTicket(ctx context.Context, req *ticketdto.Reserv
 
 	quantity := 1
 
-	// 🔥 INICIAR TRANSACCIÓN
+	// Iniciar transacción
 	tx, err := s.ticketRepo.BeginTx(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start transaction: %w", err)
@@ -131,10 +132,10 @@ func (s *TicketService) ReserveTicket(ctx context.Context, req *ticketdto.Reserv
 		return nil, fmt.Errorf("ticket type not found: %w", err)
 	}
 
-	// Reservar inventario
-	err = s.ticketTypeRepo.ReserveTicketsTx(ctx, tx, ticketType.ID, quantity)
+	// 🔥 USAR BLOQUEO FOR UPDATE
+	err = s.ticketTypeRepo.ReserveTicketWithLock(ctx, tx, ticketType.ID, quantity)
 	if err != nil {
-		return nil, err // 🔥 NO CONTINUAR si hay error
+		return nil, err
 	}
 
 	event, err := s.eventRepo.GetByID(ctx, ticketType.EventID)
@@ -170,13 +171,11 @@ func (s *TicketService) ReserveTicket(ctx context.Context, req *ticketdto.Reserv
 		return nil, fmt.Errorf("invalid ticket: %w", err)
 	}
 
-	// 🔥 CREAR TICKET (USANDO TX)
 	err = s.ticketRepo.CreateTx(ctx, tx, ticket)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create reservation: %w", err)
 	}
 
-	// 🔥 CONFIRMAR TRANSACCIÓN
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
@@ -284,6 +283,37 @@ func (s *TicketService) TransferTicket(ctx context.Context, req *ticketdto.Trans
 	}
 
 	return updatedTicket, nil
+}
+
+// GetTicketStats obtiene estadísticas de tickets para un evento
+func (s *TicketService) GetTicketStats(ctx context.Context, eventID string) (*ticketdto.TicketStatsResponse, error) {
+	event, err := s.eventRepo.GetByPublicID(ctx, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("event not found: %w", err)
+	}
+
+	stats, err := s.ticketRepo.GetEventStats(ctx, event.PublicID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get ticket stats: %w", err)
+	}
+
+	checkInRate := 0.0
+	if stats.SoldTickets > 0 {
+		checkInRate = float64(stats.CheckedInTickets) / float64(stats.SoldTickets)
+	}
+
+	return &ticketdto.TicketStatsResponse{
+		TotalTickets:     stats.TotalTickets,
+		AvailableTickets: stats.AvailableTickets,
+		SoldTickets:      stats.SoldTickets,
+		ReservedTickets:  stats.ReservedTickets,
+		CheckedInTickets: stats.CheckedInTickets,
+		CancelledTickets: stats.CancelledTickets,
+		RefundedTickets:  stats.RefundedTickets,
+		TotalRevenue:     stats.TotalRevenue,
+		AvgTicketPrice:   stats.AvgTicketPrice,
+		CheckInRate:      checkInRate,
+	}, nil
 }
 
 // GetTicket obtiene un ticket por su ID público
@@ -509,42 +539,12 @@ func (s *TicketService) ValidateTicket(ctx context.Context, code, secretHash str
 	return ticket, nil
 }
 
-// GetTicketStats obtiene estadísticas de tickets para un evento
-func (s *TicketService) GetTicketStats(ctx context.Context, eventID string) (*ticketdto.TicketStatsResponse, error) {
-	event, err := s.eventRepo.GetByPublicID(ctx, eventID)
-	if err != nil {
-		return nil, fmt.Errorf("event not found: %w", err)
-	}
-
-	stats, err := s.ticketRepo.GetEventStats(ctx, event.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get ticket stats: %w", err)
-	}
-
-	checkInRate := 0.0
-	if stats.SoldTickets > 0 {
-		checkInRate = float64(stats.CheckedInTickets) / float64(stats.SoldTickets)
-	}
-
-	return &ticketdto.TicketStatsResponse{
-		TotalTickets:     stats.TotalTickets,
-		AvailableTickets: stats.AvailableTickets,
-		SoldTickets:      stats.SoldTickets,
-		ReservedTickets:  stats.ReservedTickets,
-		CheckedInTickets: stats.CheckedInTickets,
-		CancelledTickets: stats.CancelledTickets,
-		RefundedTickets:  stats.RefundedTickets,
-		TotalRevenue:     stats.TotalRevenue,
-		AvgTicketPrice:   stats.AvgTicketPrice,
-		CheckInRate:      checkInRate,
-	}, nil
-}
-
 // generateTicketCode genera un código único para el ticket usando UUID
 func (s *TicketService) generateTicketCode(eventID, ticketTypeID int64, attempt int) string {
 	return fmt.Sprintf("TKT-%d-%d-%s", eventID, ticketTypeID, uuid.New().String()[:8])
 }
 
+// PurchaseTicket convierte una reserva en venta (CON BLOQUEO FOR UPDATE)
 func (s *TicketService) PurchaseTicket(ctx context.Context, req *ticketdto.PurchaseTicketRequest) (*entities.Ticket, error) {
 	if req.TicketID == "" {
 		return nil, errors.New("ticket_id is required")
@@ -553,22 +553,25 @@ func (s *TicketService) PurchaseTicket(ctx context.Context, req *ticketdto.Purch
 		return nil, errors.New("customer_id is required")
 	}
 
-	// 🔥 INICIAR TRANSACCIÓN
+	// Iniciar transacción
 	tx, err := s.ticketRepo.BeginTx(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	ticket, err := s.ticketRepo.GetByPublicID(ctx, req.TicketID)
+	// 🔥 OBTENER TICKET CON BLOQUEO FOR UPDATE
+	ticket, err := s.ticketRepo.GetByPublicIDForUpdate(ctx, tx, req.TicketID)
 	if err != nil {
 		return nil, fmt.Errorf("ticket not found: %w", err)
 	}
 
+	// Verificar que esté reservado
 	if ticket.Status != string(enums.TicketStatusReserved) {
 		return nil, errors.New("ticket is not reserved")
 	}
 
+	// Verificar expiración
 	if ticket.ReservationExpiresAt != nil && time.Now().After(*ticket.ReservationExpiresAt) {
 		return nil, errors.New("reservation expired")
 	}
@@ -580,12 +583,13 @@ func (s *TicketService) PurchaseTicket(ctx context.Context, req *ticketdto.Purch
 
 	now := time.Now()
 
-	// 🔥 CONFIRMAR RESERVA EN INVENTARIO (USANDO TX)
+	// Confirmar reserva en inventario
 	err = s.ticketTypeRepo.ConfirmReservationTx(ctx, tx, ticket.TicketTypeID, 1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to confirm reservation: %w", err)
 	}
 
+	// Actualizar ticket
 	ticket.Status = string(enums.TicketStatusSold)
 	ticket.CustomerID = &customer.ID
 	ticket.SoldAt = &now
@@ -594,13 +598,13 @@ func (s *TicketService) PurchaseTicket(ctx context.Context, req *ticketdto.Purch
 	ticket.ReservationExpiresAt = nil
 	ticket.UpdatedAt = now
 
-	// 🔥 ACTUALIZAR TICKET (USANDO TX)
+	// Actualizar ticket en BD
 	err = s.ticketRepo.UpdateTx(ctx, tx, ticket)
 	if err != nil {
 		return nil, fmt.Errorf("failed to purchase ticket: %w", err)
 	}
 
-	// 🔥 CONFIRMAR TRANSACCIÓN
+	// Confirmar transacción
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
