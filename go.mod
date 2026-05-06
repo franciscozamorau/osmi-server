@@ -13,6 +13,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/lib/pq v1.12.0
 	github.com/redis/go-redis/v9 v9.18.0
+	github.com/stripe/stripe-go/v81 v81.4.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.46.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260209200024-4cfbd4190f57

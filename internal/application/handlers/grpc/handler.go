@@ -19,6 +19,7 @@ type Handler struct {
 	categoryHandler   *CategoryHandler
 	ticketTypeHandler *TicketTypeHandler
 	orderHandler      *OrderHandler
+	paymentHandler    *PaymentHandler
 }
 
 func NewHandler(
@@ -29,7 +30,7 @@ func NewHandler(
 	categoryHandler *CategoryHandler,
 	ticketTypeHandler *TicketTypeHandler,
 	orderHandler *OrderHandler,
-
+	paymentHandler *PaymentHandler, // 🔥 NUEVO - FALTABA
 ) *Handler {
 	return &Handler{
 		customerHandler:   customerHandler,
@@ -39,6 +40,7 @@ func NewHandler(
 		categoryHandler:   categoryHandler,
 		ticketTypeHandler: ticketTypeHandler,
 		orderHandler:      orderHandler,
+		paymentHandler:    paymentHandler, // 🔥 NUEVO
 	}
 }
 
@@ -68,7 +70,6 @@ func (h *Handler) CreateCategory(ctx context.Context, req *osmi.CreateCategoryRe
 	return h.categoryHandler.CreateCategory(ctx, req)
 }
 
-// CORREGIDO: Ahora usa GetEventCategoriesRequest
 func (h *Handler) GetEventCategories(ctx context.Context, req *osmi.GetEventCategoriesRequest) (*osmi.CategoryListResponse, error) {
 	return h.categoryHandler.GetEventCategories(ctx, req)
 }
@@ -78,7 +79,6 @@ func (h *Handler) CreateCustomer(ctx context.Context, req *osmi.CreateCustomerRe
 	return h.customerHandler.CreateCustomer(ctx, req)
 }
 
-// CORREGIDO: Ahora usa GetCustomerRequest
 func (h *Handler) GetCustomer(ctx context.Context, req *osmi.GetCustomerRequest) (*osmi.CustomerResponse, error) {
 	return h.customerHandler.GetCustomer(ctx, req)
 }
@@ -95,7 +95,6 @@ func (h *Handler) GetCustomerStats(ctx context.Context, req *osmi.Empty) (*osmi.
 	return h.customerHandler.GetCustomerStats(ctx, req)
 }
 
-// CORREGIDO: Ahora usa GetCustomerTicketsRequest
 func (h *Handler) GetCustomerTickets(ctx context.Context, req *osmi.GetCustomerTicketsRequest) (*osmi.TicketListResponse, error) {
 	return h.ticketHandler.GetCustomerTickets(ctx, req)
 }
@@ -109,7 +108,6 @@ func (h *Handler) ReserveTicket(ctx context.Context, req *osmi.ReserveTicketRequ
 	return h.ticketHandler.ReserveTicket(ctx, req)
 }
 
-// PurchaseTicket maneja la compra de un ticket reservado
 func (h *Handler) PurchaseTicket(ctx context.Context, req *osmi.PurchaseTicketRequest) (*osmi.TicketResponse, error) {
 	return h.ticketHandler.PurchaseTicket(ctx, req)
 }
@@ -126,7 +124,6 @@ func (h *Handler) ListTickets(ctx context.Context, req *osmi.ListTicketsRequest)
 	return h.ticketHandler.ListTickets(ctx, req)
 }
 
-// CORREGIDO: Ahora usa GetUserTicketsRequest
 func (h *Handler) GetUserTickets(ctx context.Context, req *osmi.GetUserTicketsRequest) (*osmi.TicketListResponse, error) {
 	return h.ticketHandler.GetUserTickets(ctx, req)
 }
@@ -186,7 +183,6 @@ func (h *Handler) CreateEvent(ctx context.Context, req *osmi.CreateEventRequest)
 	return h.eventHandler.CreateEvent(ctx, req)
 }
 
-// CORREGIDO: Ahora usa GetEventRequest
 func (h *Handler) GetEvent(ctx context.Context, req *osmi.GetEventRequest) (*osmi.EventResponse, error) {
 	return h.eventHandler.GetEvent(ctx, req)
 }
@@ -210,7 +206,16 @@ func (h *Handler) HealthCheck(ctx context.Context, req *osmi.Empty) (*osmi.Healt
 	}, nil
 }
 
-// ============ order ============
+// ============ ORDERS ============
 func (h *Handler) CreateOrder(ctx context.Context, req *osmi.CreateOrderRequest) (*osmi.OrderResponse, error) {
 	return h.orderHandler.CreateOrder(ctx, req)
+}
+
+// ============ PAYMENTS ============
+func (h *Handler) CreatePayment(ctx context.Context, req *osmi.CreatePaymentRequest) (*osmi.PaymentProcessingResponse, error) {
+	return h.paymentHandler.CreatePayment(ctx, req)
+}
+
+func (h *Handler) ProcessOrder(ctx context.Context, req *osmi.ProcessOrderRequest) (*osmi.Empty, error) {
+	return h.paymentHandler.ProcessOrder(ctx, req)
 }

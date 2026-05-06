@@ -290,3 +290,57 @@ func (r *OrderRepository) GetAverageOrderValue(ctx context.Context) (float64, er
 func (r *OrderRepository) GetConversionRate(ctx context.Context) (float64, error) {
 	return 0, nil
 }
+
+func (r *OrderRepository) FindByPublicIDForUpdate(ctx context.Context, tx pgx.Tx, publicID string) (*entities.Order, error) {
+	query := `
+		SELECT id, public_uuid, customer_id, status, payment_status, total_amount, currency,
+			payment_method, created_at, updated_at
+		FROM billing.orders
+		WHERE public_uuid = $1
+		FOR UPDATE
+	`
+
+	var order entities.Order
+	err := tx.QueryRow(ctx, query, publicID).Scan(
+		&order.ID, &order.PublicID, &order.CustomerID, &order.Status,
+		&order.PaymentStatus, &order.TotalAmount, &order.Currency,
+		&order.PaymentMethod, &order.CreatedAt, &order.UpdatedAt,
+	)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, repository.ErrOrderNotFound
+	}
+	return &order, err
+}
+
+// FindPaidPendingOrders encuentra órdenes pagadas pendientes de procesar
+func (r *OrderRepository) FindPaidPendingOrders(ctx context.Context) ([]*entities.Order, error) {
+	query := `
+		SELECT id, public_uuid, customer_id, status, payment_status, total_amount, currency,
+			payment_method, created_at, updated_at
+		FROM billing.orders
+		WHERE payment_status = 'paid' AND status = 'pending'
+		ORDER BY created_at ASC
+	`
+
+	rows, err := r.db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var orders []*entities.Order
+	for rows.Next() {
+		var order entities.Order
+		err = rows.Scan(
+			&order.ID, &order.PublicID, &order.CustomerID, &order.Status,
+			&order.PaymentStatus, &order.TotalAmount, &order.Currency,
+			&order.PaymentMethod, &order.CreatedAt, &order.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		orders = append(orders, &order)
+	}
+	return orders, nil
+}

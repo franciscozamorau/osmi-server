@@ -16,6 +16,7 @@ import (
 	"github.com/franciscozamorau/osmi-server/internal/config"
 	"github.com/franciscozamorau/osmi-server/internal/database"
 	"github.com/franciscozamorau/osmi-server/internal/infrastructure/cache"
+	"github.com/franciscozamorau/osmi-server/internal/infrastructure/payment"
 	"github.com/franciscozamorau/osmi-server/internal/infrastructure/repositories/postgres"
 	"github.com/franciscozamorau/osmi-server/internal/shared/security"
 	"github.com/joho/godotenv"
@@ -48,6 +49,7 @@ func main() {
 	organizerRepo := postgres.NewOrganizerRepository(database.Pool)
 	venueRepo := postgres.NewVenueRepository(database.Pool)
 	orderRepo := postgres.NewOrderRepository(database.Pool)
+	paymentRepo := postgres.NewPaymentRepository(database.Pool)
 
 	// ================================================
 	// SERVICIOS DE SEGURIDAD
@@ -100,6 +102,17 @@ func main() {
 	categoryService := services.NewCategoryService(categoryRepo, eventRepo)
 	orderService := services.NewOrderService(orderRepo, customerRepo, ticketTypeRepo, ticketRepo)
 
+	// Servicio de pagos con Stripe
+	stripeClient := payment.NewStripeClient(cfg.Stripe.SecretKey)
+	paymentService := services.NewPaymentService(
+		paymentRepo,
+		orderRepo,
+		ticketRepo,
+		ticketTypeRepo,
+		stripeClient,
+		cfg.Stripe.WebhookSecret,
+	)
+
 	// ================================================
 	// HANDLERS
 	// ================================================
@@ -111,6 +124,9 @@ func main() {
 	categoryHandler := handlersgrpc.NewCategoryHandler(categoryService)
 	ticketTypeHandler := handlersgrpc.NewTicketTypeHandler(ticketTypeService)
 	orderHandler := handlersgrpc.NewOrderHandler(orderService)
+	paymentHandler := handlersgrpc.NewPaymentHandler(paymentService)
+
+	log.Println("✅ Handlers específicos creados")
 
 	// Handler unificado
 	handler := handlersgrpc.NewHandler(
@@ -121,7 +137,10 @@ func main() {
 		categoryHandler,
 		ticketTypeHandler,
 		orderHandler,
+		paymentHandler,
 	)
+
+	log.Println("✅ Handler unificado creado")
 
 	// Iniciar servidor gRPC
 	startServer(handler, cfg.GRPCPort)

@@ -1,3 +1,4 @@
+// cmd/worker/main.go
 package main
 
 import (
@@ -8,72 +9,139 @@ import (
 	"github.com/franciscozamorau/osmi-server/internal/database"
 )
 
+const (
+	workerInterval = 5 * time.Minute
+	queryTimeout   = 2 * time.Minute
+)
+
 func main() {
+	log.Println("🚀 OSMI Reservation Expiration Worker")
+	log.Println("======================================")
+	log.Printf("⏱️ Intervalo de ejecución: %s", workerInterval)
+
 	if err := database.Init(); err != nil {
-		log.Fatalf("❌ Failed to connect to database: %v", err)
+		log.Fatalf("❌ Failed to initialize database connection: %v", err)
 	}
 	defer database.Close()
 
-	log.Println("🚀 Worker de expiración de reservas iniciado")
-	log.Println("⏱️  Se ejecutará cada 5 minutos")
+	log.Println("✅ Database connected")
 
-	// Ejecutar inmediatamente al iniciar
-	runExpiration()
+	// Primera ejecución inmediata al iniciar
+	executeExpirationJob()
 
-	// Luego cada 5 minutos
-	ticker := time.NewTicker(5 * time.Minute)
+	// Ejecución recurrente
+	ticker := time.NewTicker(workerInterval)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		runExpiration()
+		executeExpirationJob()
 	}
 }
 
-func runExpiration() {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+func executeExpirationJob() {
+	start := time.Now()
+
+	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
 	defer cancel()
 
-	// 1. Marcar reservas expiradas como 'expired'
-	updateTicketsQuery := `
-		UPDATE ticketing.tickets 
-		SET status = 'expired', 
-		    reservation_expires_at = NULL,
-		    updated_at = NOW()
-		WHERE status = 'reserved' 
-		  AND reservation_expires_at < NOW()
-	`
-	result, err := database.Pool.Exec(ctx, updateTicketsQuery)
+	log.Println("🔄 Ejecutando limpieza de reservas expiradas...")
+
+	tx, err := database.Pool.Begin(ctx)
 	if err != nil {
-		log.Printf("❌ Error marcando tickets expirados: %v", err)
+		log.Printf("❌ Failed to start transaction: %v", err)
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	expiredCount, err := expireReservedTickets(ctx, tx)
+	if err != nil {
+		log.Printf("❌ Failed to expire reserved tickets: %v", err)
 		return
 	}
 
-	count := result.RowsAffected()
-
-	if count > 0 {
-		log.Printf("📝 Marcados %d tickets como expired", count)
-
-		// 2. Recalcular contadores
-		recalcQuery := `
-			UPDATE ticketing.ticket_types tt
-			SET 
-			    reserved_quantity = COALESCE(r.real_reserved, 0),
-			    sold_quantity = COALESCE(r.real_sold, 0)
-			FROM (
-			    SELECT 
-			        ticket_type_id,
-			        COUNT(*) FILTER (WHERE status = 'reserved') AS real_reserved,
-			        COUNT(*) FILTER (WHERE status IN ('sold', 'checked_in')) AS real_sold
-			    FROM ticketing.tickets
-			    GROUP BY ticket_type_id
-			) r
-			WHERE tt.id = r.ticket_type_id
-		`
-		_, err = database.Pool.Exec(ctx, recalcQuery)
-		if err != nil {
-			log.Printf("❌ Error recalculando contadores: %v", err)
-		} else {
-			log.Printf("✅ Liberadas %d reservas expiradas (contadores actualizados)", count)
+	if expiredCount == 0 {
+		if err := tx.Commit(ctx); err != nil {
+			log.Printf("❌ Failed to commit empty transaction: %v", err)
+			return
 		}
+
+		log.Println("📭 No expired reservations found")
+		return
 	}
+
+	if err := recalculateTicketTypeCounters(ctx, tx); err != nil {
+		log.Printf("❌ Failed to recalculate ticket counters: %v", err)
+		return
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		log.Printf("❌ Failed to commit transaction: %v", err)
+		return
+	}
+
+	log.Printf(
+		"✅ Expired reservations processed successfully | released=%d | duration=%s",
+		expiredCount,
+		time.Since(start),
+	)
+}
+
+func expireReservedTickets(
+	ctx context.Context,
+	tx interface {
+		Exec(context.Context, string, ...interface{}) (interface {
+			RowsAffected() int64
+		}, error)
+	},
+) (int64, error) {
+	const query = `
+		UPDATE ticketing.tickets
+		SET
+			status = 'expired',
+			reservation_expires_at = NULL,
+			updated_at = NOW()
+		WHERE status = 'reserved'
+		  AND reservation_expires_at IS NOT NULL
+		  AND reservation_expires_at < NOW()
+	`
+
+	result, err := tx.Exec(ctx, query)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected(), nil
+}
+
+func recalculateTicketTypeCounters(
+	ctx context.Context,
+	tx interface {
+		Exec(context.Context, string, ...interface{}) (interface {
+			RowsAffected() int64
+		}, error)
+	},
+) error {
+	const query = `
+		UPDATE ticketing.ticket_types tt
+		SET
+			reserved_quantity = COALESCE(calc.real_reserved, 0),
+			sold_quantity = COALESCE(calc.real_sold, 0),
+			updated_at = NOW()
+		FROM (
+			SELECT
+				ticket_type_id,
+				COUNT(*) FILTER (
+					WHERE status = 'reserved'
+				) AS real_reserved,
+				COUNT(*) FILTER (
+					WHERE status IN ('sold', 'checked_in')
+				) AS real_sold
+			FROM ticketing.tickets
+			GROUP BY ticket_type_id
+		) calc
+		WHERE tt.id = calc.ticket_type_id
+	`
+
+	_, err := tx.Exec(ctx, query)
+	return err
 }

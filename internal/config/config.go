@@ -10,7 +10,13 @@ type Config struct {
 	Server   ServerConfig
 	JWT      JWTConfig
 	Redis    RedisConfig
+	Stripe   StripeConfig
 	GRPCPort string
+}
+
+type StripeConfig struct {
+	SecretKey     string
+	WebhookSecret string
 }
 
 type DatabaseConfig struct {
@@ -63,6 +69,10 @@ func Load() *Config {
 			URL:      getEnv("REDIS_URL", "localhost:6379"),
 			Password: getEnv("REDIS_PASSWORD", ""),
 			DB:       getEnvAsInt("REDIS_DB", 0),
+		},
+		Stripe: StripeConfig{
+			SecretKey:     getEnv("STRIPE_SECRET_KEY", ""),
+			WebhookSecret: getEnv("STRIPE_WEBHOOK_SECRET", ""),
 		},
 	}
 }
