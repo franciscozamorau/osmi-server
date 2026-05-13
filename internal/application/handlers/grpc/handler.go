@@ -219,3 +219,8 @@ func (h *Handler) CreatePayment(ctx context.Context, req *osmi.CreatePaymentRequ
 func (h *Handler) ProcessOrder(ctx context.Context, req *osmi.ProcessOrderRequest) (*osmi.Empty, error) {
 	return h.paymentHandler.ProcessOrder(ctx, req)
 }
+
+// CreatePaymentIntent crea un PaymentIntent de Stripe
+func (h *Handler) CreatePaymentIntent(ctx context.Context, req *osmi.CreatePaymentIntentRequest) (*osmi.PaymentIntentResponse, error) {
+	return h.paymentHandler.CreatePaymentIntent(ctx, req)
+}

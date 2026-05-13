@@ -173,3 +173,10 @@ type DailyVolume struct {
 	TotalVolume  float64 `json:"total_volume"`
 	AvgPayment   float64 `json:"avg_payment"`
 }
+
+type CreatePaymentIntentResponse struct {
+	ClientSecret    string `json:"client_secret"`
+	PaymentIntentID string `json:"payment_intent_id"`
+	Amount          int64  `json:"amount"`
+	Currency        string `json:"currency"`
+}

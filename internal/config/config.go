@@ -47,7 +47,7 @@ type RedisConfig struct {
 
 func Load() *Config {
 	return &Config{
-		GRPCPort: "50051",
+		GRPCPort: getEnv("GRPC_PORT", "50051"),
 		Database: DatabaseConfig{
 			URL:             getEnv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/osmi"),
 			MaxOpenConns:    getEnvAsInt("DB_MAX_OPEN_CONNS", 25),
@@ -56,7 +56,7 @@ func Load() *Config {
 			ConnMaxIdleTime: getEnvAsDuration("DB_CONN_MAX_IDLE_TIME", 30*time.Minute),
 		},
 		Server: ServerConfig{
-			GRPCAddress: getEnv("GRPC_ADDRESS", ":50051"),
+			GRPCAddress: ":" + getEnv("GRPC_PORT", "50051"),
 			HTTPAddress: getEnv("HTTP_ADDRESS", ":8080"),
 			Environment: getEnv("ENVIRONMENT", "development"),
 		},

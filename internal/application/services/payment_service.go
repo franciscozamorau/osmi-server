@@ -246,3 +246,63 @@ func (s *PaymentService) ProcessPaidOrder(ctx context.Context, orderID string) e
 
 	return tx.Commit(ctx)
 }
+
+// CreatePaymentIntent crea un PaymentIntent de Stripe para el frontend
+func (s *PaymentService) CreatePaymentIntent(
+	ctx context.Context,
+	req *paymentdto.CreatePaymentIntentRequest,
+) (*paymentdto.CreatePaymentIntentResponse, error) {
+
+	order, err := s.orderRepo.FindByPublicID(ctx, req.OrderID)
+	if err != nil {
+		return nil, fmt.Errorf("order not found: %w", err)
+	}
+
+	// Debe seguir pendiente
+	if order.Status != "pending" {
+		return nil, fmt.Errorf(
+			"order is not pending, current status: %s",
+			order.Status,
+		)
+	}
+
+	// La reserva creada por CreateOrder debe seguir viva
+	if order.PaymentStatus == "paid" {
+		return nil, fmt.Errorf("order already paid")
+	}
+
+	currency := req.Currency
+	if currency == "" {
+		currency = "MXN"
+	}
+
+	amountCents := int64(order.TotalAmount * 100)
+
+	pi, err := s.stripeClient.CreatePaymentIntent(
+		amountCents,
+		currency,
+		order.PublicID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"failed to create stripe payment intent: %w",
+			err,
+		)
+	}
+
+	order.UpdatedAt = time.Now()
+
+	if err := s.orderRepo.Update(ctx, order); err != nil {
+		return nil, fmt.Errorf(
+			"failed to update order: %w",
+			err,
+		)
+	}
+
+	return &paymentdto.CreatePaymentIntentResponse{
+		ClientSecret:    pi.ClientSecret,
+		PaymentIntentID: pi.ID,
+		Amount:          pi.Amount,
+		Currency:        string(pi.Currency),
+	}, nil
+}

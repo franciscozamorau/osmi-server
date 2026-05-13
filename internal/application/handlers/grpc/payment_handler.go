@@ -113,3 +113,44 @@ func (h *PaymentHandler) ProcessOrder(ctx context.Context, req *osmi.ProcessOrde
 
 	return &osmi.Empty{}, nil
 }
+
+// CreatePaymentIntent crea un PaymentIntent de Stripe CON reserva temporal de stock
+func (h *PaymentHandler) CreatePaymentIntent(
+	ctx context.Context,
+	req *osmi.CreatePaymentIntentRequest,
+) (*osmi.PaymentIntentResponse, error) {
+
+	if req.OrderId == "" {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"order_id is required",
+		)
+	}
+
+	if req.Currency == "" {
+		req.Currency = "MXN"
+	}
+
+	createReq := &paymentdto.CreatePaymentIntentRequest{
+		OrderID:  req.OrderId,
+		Currency: req.Currency,
+	}
+
+	resp, err := h.paymentService.CreatePaymentIntent(
+		ctx,
+		createReq,
+	)
+	if err != nil {
+		return nil, status.Error(
+			codes.Internal,
+			err.Error(),
+		)
+	}
+
+	return &osmi.PaymentIntentResponse{
+		ClientSecret:    resp.ClientSecret,
+		PaymentIntentId: resp.PaymentIntentID,
+		Amount:          resp.Amount,
+		Currency:        resp.Currency,
+	}, nil
+}

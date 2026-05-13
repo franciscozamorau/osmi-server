@@ -21,3 +21,8 @@ type RefundPaymentRequest struct {
 	RefundReason string  `json:"refund_reason,omitempty" validate:"omitempty,max=100"`
 	FullRefund   bool    `json:"full_refund,omitempty"`
 }
+
+type CreatePaymentIntentRequest struct {
+	OrderID  string `json:"order_id" validate:"required"`
+	Currency string `json:"currency" validate:"omitempty,oneof=MXN USD EUR"`
+}

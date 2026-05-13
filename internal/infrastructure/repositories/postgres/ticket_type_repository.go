@@ -581,12 +581,21 @@ func (r *TicketTypeRepository) FindByEvent(ctx context.Context, eventID int64, a
 // FindByEventPublicID obtiene por UUID del evento
 func (r *TicketTypeRepository) FindByEventPublicID(ctx context.Context, eventPublicID string) ([]*entities.TicketType, error) {
 	query := `
-		SELECT tt.*
-		FROM ticketing.ticket_types tt
-		JOIN ticketing.events e ON tt.event_id = e.id
-		WHERE e.public_uuid = $1
-		ORDER BY tt.base_price
-	`
+    SELECT 
+        tt.id, tt.public_uuid, tt.event_id, tt.name, tt.description, tt.ticket_class,
+        tt.base_price, tt.currency, tt.tax_rate, tt.service_fee_type, tt.service_fee_value,
+        tt.total_quantity, tt.reserved_quantity, tt.sold_quantity,
+        tt.max_per_order, tt.min_per_order,
+        tt.sale_starts_at, tt.sale_ends_at,
+        tt.is_active, tt.requires_approval, tt.is_hidden, tt.sales_channel,
+        tt.benefits, tt.access_type, tt.validation_rules,
+        tt.available_quantity, tt.is_sold_out,
+        tt.created_at, tt.updated_at
+    FROM ticketing.ticket_types tt
+    JOIN ticketing.events e ON tt.event_id = e.id
+    WHERE e.public_uuid = $1
+    ORDER BY tt.base_price
+`
 
 	rows, err := r.db.Query(ctx, query, eventPublicID)
 	if err != nil {
